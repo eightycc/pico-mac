@@ -264,7 +264,7 @@ static void     disc_setup(disc_descr_t discs[DISC_NUM_DRIVES])
                 printf("  *** Can't open %s: %s (%d)!\n", disc0_name, FRESULT_str(fr), fr);
                 goto no_sd;
         } else {
-                printf("  Opened, size 0x%x\n", f_size(&discfp));
+                printf("  Opened, size %d (0x%x)\n", (unsigned)f_size(&discfp), (unsigned)f_size(&discfp));
                 if (read_only)
                         printf("  (disc is read-only)\n");
                 discs[0].base = 0; // Means use R/W ops
