@@ -73,5 +73,6 @@ cmake -S . -B build_${TAG} \
     -DMEMSIZE=${MEMSIZE} \
     -DUSE_HSTX=1 \
     -DSD_TX=35 -DSD_RX=36 -DSD_SCK=34 -DSD_CS=39 -DUSE_SD=1 \
+    -DUART_TX=44 -DUART_RX=45 -DUART=0 \
     ${CMAKE_ARGS} "$@"
 make -C build_${TAG} -j$(nproc)
