@@ -1,5 +1,37 @@
 # Pico Micro Mac (pico-umac)
 
+v0.21-fruitjam 22 March 2025
+
+I (@jepler) have run roughshod across the code, breaking things willy-nilly and adding
+    * 512x342 & 640x480 digital output on HSTX
+    * PIO USB
+    * PSRAM support
+    * Some Sound support
+    * To enable that, some VIA timer 2 support
+
+The two main variants offered are the "400kB" mac with a 640x480 resolution & a
+4MB mac with 512x342 resolution (presented centered on a 640x480 display).
+
+For now, I2S is on pins A1 (data) A2 (LRCK) A3 (bit clock). With any luck it'll be moved to the on-board I2S soon.
+
+What works?
+    * System beep
+    * A fair amount of hypercard, though not playing melodies with 'play "Boing" "a b c"'
+    * Hypercard 'play "Boing"' does play audio though (as does 'beep')
+    * Dark Castle including audio
+    * After Dark screensavers including audio
+
+What almost works
+    * Glider was working, but my sound changes made it boot with an error about missing coprocessor?? (appears linked to the timer2 implementation)
+
+There are artifacts that you can grab from the latest Actions build, at least until they expire.
+
+
+Some good Mac software:
+    * https://archive.org/details/HyperCardBootSystem7
+    * https://archive.org/details/mac_DarkCastle_1_2
+    * https://archive.org/details/AfterDark2
+
 v0.21 20 December 2024
 
 
