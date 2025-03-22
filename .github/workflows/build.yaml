@@ -23,6 +23,9 @@ jobs:
       with:
         release: '13.2.Rel1'
 
+    - name: install sdl
+      run: sudo apt update && sudo apt install -y libsdl2-dev
+
     - name: get submodules
       run: git submodule update --init --recursive
 
