@@ -30,7 +30,7 @@ jobs:
       run: git submodule update --init --recursive
 
     - name: get pico-sdk
-      run: (cd .. && git clone --depth=1 https://github.com/raspberrypi/pico-sdk)
+      run: (cd .. && git clone --depth=1 https://github.com/adafruit/pico-sdk adafruit-fruit-jam)
 
     - name: build targets
       run: |
