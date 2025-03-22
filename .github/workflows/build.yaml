@@ -24,13 +24,13 @@ jobs:
         release: '13.2.Rel1'
 
     - name: install sdl
-      run: sudo apt update && sudo apt install -y libsdl2-dev
+      run: sudo apt-get update && sudo apt-get install -y eatmydata && sudo eatmydata apt-get install -y libsdl2-dev
 
     - name: get submodules
       run: git submodule update --init --recursive
 
     - name: get pico-sdk
-      run: (cd .. && git clone --depth=1 https://github.com/adafruit/pico-sdk adafruit-fruit-jam)
+      run: git clone --depth=1 -b adafruit-fruit-jam https://github.com/adafruit/pico-sdk ../pico-sdk
 
     - name: build targets
       run: |
