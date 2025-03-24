@@ -82,10 +82,14 @@ static const uint8_t umac_rom[] = {
 };
 
 #if USE_PSRAM
-static uint32_t umac_framebuffer_mirror[640*480/32];
 #define umac_ram ((uint8_t*)0x11000000)
 #else
 static uint8_t umac_ram[RAM_SIZE];
+#endif
+
+#define MIRROR_FRAMEBUFFER (USE_PSRAM || DISP_WIDTH != 640)
+#if MIRROR_FRAMEBUFFER
+static uint32_t umac_framebuffer_mirror[640*480/32];
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -115,13 +119,13 @@ static int umac_cursor_y = 0;
 static int umac_cursor_button = 0;
 
 #define umac_get_audio_offset() (RAM_SIZE - 768)
-#if USE_PSRAM
+#if MIRROR_FRAMEBUFFER
 static void copy_framebuffer() {
     uint32_t *src = (uint32_t*)(umac_ram + umac_get_fb_offset());
 #if DISP_WIDTH==640 && DISP_HEIGHT==480
     uint32_t *dest = umac_framebuffer_mirror;
     for(int i=0; i<640*480/32; i++) {
-        *dest++ = *src++ ^ 0xfffffffful;
+        *dest++ = *src++;
     }
 #elif DISP_WIDTH==512 && DISP_HEIGHT==342
     #define DISP_XOFFSET ((640 - DISP_WIDTH) / 32 / 2)
@@ -131,7 +135,7 @@ static void copy_framebuffer() {
     for(int i=0; i<DISP_HEIGHT; i++) {
         uint32_t *dest = umac_framebuffer_mirror + (DISP_YOFFSET * LONGS_PER_OUTPUT_ROW + DISP_XOFFSET) + LONGS_PER_OUTPUT_ROW * i;
         for(int j=0; j<LONGS_PER_INPUT_ROW; j++) {
-          *dest++ = *src++ ^ 0xfffffffful;
+          *dest++ = *src++ ^ 0xffffffff;
         }
     }
 #else
@@ -155,7 +159,7 @@ static void     poll_umac()
         pending_vsync |= audio_poll();
 #endif
         if (pending_vsync) {
-#if USE_PSRAM
+#if MIRROR_FRAMEBUFFER
                 copy_framebuffer();
 #endif
                 /* FIXME: Trigger this off actual vsync */
@@ -301,14 +305,13 @@ static void     core1_main()
         printf("Core 1 started\n");
         disc_setup(discs);
 
-#if USE_PSRAM
-        umac_init(umac_ram, (void *)umac_rom, discs);
-        video_init((uint32_t *)(umac_framebuffer_mirror));
-#else
         umac_init(umac_ram, (void *)umac_rom, discs);
         /* Video runs on core 1, i.e. IRQs/DMA are unaffected by
          * core 0's USB activity.
          */
+#if MIRROR_FRAMEBUFFER
+        video_init((uint32_t *)(umac_framebuffer_mirror));
+#else
         video_init((uint32_t *)(umac_ram + umac_get_fb_offset()));
 #endif
 

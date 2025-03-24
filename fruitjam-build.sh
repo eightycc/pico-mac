@@ -11,14 +11,14 @@ DISP_WIDTH=512
 DISP_HEIGHT=342
 MEMSIZE=400
 DISK_IMAGE=""
-CMAKE_ARGS=
+CMAKE_ARGS=""
 
 while getopts "hvd:m:" o; do
     case "$o" in
     (v)
         DISP_WIDTH=640
         DISP_HEIGHT=480
-        CMAKE_ARGS="$CMAKE_ARGS -DUSE_VGA_RES=1 -DHSTX_CKP=12 -DHSTX_D0P=14 -DHSTX_D1P=16 -DHSTX_D2P=18"
+        CMAKE_ARGS="-DUSE_VGA_RES=1"
         ;;
     (m)
         MEMSIZE=$OPTARG
@@ -42,10 +42,15 @@ done
 shift $((OPTIND-1))
 
 TAG=fruitjam_${DISP_WIDTH}x${DISP_HEIGHT}_${MEMSIZE}k
-PSRAM=$((MEMSIZE > 448 || DISP_WIDTH < 640))
+PSRAM=$((MEMSIZE > 400))
 if [ $PSRAM -ne 0 ] ; then
     TAG=${TAG}_psram
     CMAKE_ARGS="$CMAKE_ARGS -DUSE_PSRAM=1"
+fi
+
+MIRROR_FRAMEBUFFER=$((USE_PSRAM || DISP_WIDTH != 640))
+if [ "$MIRROR_FRAMEBUFFER" -eq 0 ]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DHSTX_CKP=12 -DHSTX_D0P=14 -DHSTX_D1P=16 -DHSTX_D2P=18 "
 fi
 
 # Append disk name to build directory if disk image is specified
@@ -74,5 +79,6 @@ cmake -S . -B build_${TAG} \
     -DUSE_HSTX=1 \
     -DSD_TX=35 -DSD_RX=36 -DSD_SCK=34 -DSD_CS=39 -DUSE_SD=1 \
     -DUART_TX=44 -DUART_RX=45 -DUART=0 \
+    -DBOARD_FILE=boards/adafruit_fruit_jam.c \
     ${CMAKE_ARGS} "$@"
 make -C build_${TAG} -j$(nproc)
