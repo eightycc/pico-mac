@@ -10,10 +10,11 @@ set -e
 DISP_WIDTH=512
 DISP_HEIGHT=342
 MEMSIZE=400
+OVERCLOCK=0
 DISK_IMAGE=""
 CMAKE_ARGS=""
 
-while getopts "hvd:m:" o; do
+while getopts "hovd:m:" o; do
     case "$o" in
     (v)
         DISP_WIDTH=640
@@ -22,6 +23,9 @@ while getopts "hvd:m:" o; do
         ;;
     (m)
         MEMSIZE=$OPTARG
+        ;;
+    (o)
+        OVERCLOCK=$((!OVERCLOCK))
         ;;
     (d)
         DISK_IMAGE=$OPTARG
@@ -51,6 +55,11 @@ fi
 MIRROR_FRAMEBUFFER=$((USE_PSRAM || DISP_WIDTH != 640))
 if [ "$MIRROR_FRAMEBUFFER" -eq 0 ]; then
     CMAKE_ARGS="$CMAKE_ARGS -DHSTX_CKP=12 -DHSTX_D0P=14 -DHSTX_D1P=16 -DHSTX_D2P=18 "
+fi
+
+if [ $OVERCLOCK -ne 0 ] ; then
+    TAG=${TAG}_oc
+    CMAKE_ARGS="$CMAKE_ARGS -DOVERCLOCK=1"
 fi
 
 # Append disk name to build directory if disk image is specified

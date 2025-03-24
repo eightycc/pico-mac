@@ -66,6 +66,12 @@ static void audio_setup();
 static bool audio_poll();
 #endif
 
+#if OVERCLOCK
+#include "hardware/vreg.h"
+#include "hardware/pll.h"
+#include "hardware/structs/ioqspi.h"
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////
 // Imports and data
 
@@ -469,8 +475,108 @@ static void __no_inline_not_in_flash_func(setup_psram)(void) {
 #endif
 }
 
+#if OVERCLOCK
+static void __no_inline_not_in_flash_func(set_qmi_timing)() {
+    // Make sure flash is deselected - QMI doesn't appear to have a busy flag(!)
+    while ((ioqspi_hw->io[1].status & IO_QSPI_GPIO_QSPI_SS_STATUS_OUTTOPAD_BITS) != IO_QSPI_GPIO_QSPI_SS_STATUS_OUTTOPAD_BITS)
+        ;
+
+    qmi_hw->m[0].timing = 0x40000202;
+    //qmi_hw->m[0].timing = 0x40000101;
+    // Force a read through XIP to ensure the timing is applied
+    volatile uint32_t* ptr = (volatile uint32_t*)0x14000000;
+    (void) *ptr;
+}   
+
+void __no_inline_not_in_flash_func(set_overclock)() {
+    uint32_t intr_stash = save_and_disable_interrupts();
+
+    // Before messing with clock speeds ensure QSPI clock is nice and slow
+    hw_write_masked(&qmi_hw->m[0].timing, 6, QMI_M0_TIMING_CLKDIV_BITS);
+
+    // We're going to go fast, boost the voltage a little
+    vreg_set_voltage(VREG_VOLTAGE_1_15);
+
+    // Force a read through XIP to ensure the timing is applied before raising the clock rate
+    volatile uint32_t* ptr = (volatile uint32_t*)0x14000000;
+    (void) *ptr;
+
+    // Before we touch PLLs, switch sys and ref cleanly away from their aux sources.
+    hw_clear_bits(&clocks_hw->clk[clk_sys].ctrl, CLOCKS_CLK_SYS_CTRL_SRC_BITS);
+    while (clocks_hw->clk[clk_sys].selected != 0x1)
+        tight_loop_contents();
+    hw_write_masked(&clocks_hw->clk[clk_ref].ctrl, CLOCKS_CLK_REF_CTRL_SRC_VALUE_XOSC_CLKSRC, CLOCKS_CLK_REF_CTRL_SRC_BITS);
+    while (clocks_hw->clk[clk_ref].selected != 0x4)
+        tight_loop_contents();
+
+    // Stop the other clocks so we don't worry about overspeed
+    clock_stop(clk_usb);
+    clock_stop(clk_adc);
+    clock_stop(clk_peri);
+    clock_stop(clk_hstx);
+
+    // Set USB PLL to 528MHz
+    pll_init(pll_usb, PLL_COMMON_REFDIV, 1584 * MHZ, 3, 1);
+
+    const uint32_t usb_pll_freq = 528 * MHZ;
+
+    // CLK SYS = PLL USB 528MHz / 2 = 264MHz
+    clock_configure(clk_sys,
+                    CLOCKS_CLK_SYS_CTRL_SRC_VALUE_CLKSRC_CLK_SYS_AUX,
+                    CLOCKS_CLK_SYS_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                    usb_pll_freq, usb_pll_freq / 2);
+
+    // CLK PERI = PLL USB 528MHz / 4 = 132MHz
+    clock_configure(clk_peri,
+                    0, // Only AUX mux on ADC
+                    CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                    usb_pll_freq, usb_pll_freq / 4);
+
+    // CLK USB = PLL USB 528MHz / 11 = 48MHz
+    clock_configure(clk_usb,
+                    0, // No GLMUX
+                    CLOCKS_CLK_USB_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                    usb_pll_freq,
+                    USB_CLK_KHZ * KHZ);
+
+    // CLK ADC = PLL USB 528MHz / 11 = 48MHz
+    clock_configure(clk_adc,
+                    0, // No GLMUX
+                    CLOCKS_CLK_ADC_CTRL_AUXSRC_VALUE_CLKSRC_PLL_USB,
+                    usb_pll_freq,
+                    USB_CLK_KHZ * KHZ);
+
+    // Now we are running fast set fast QSPI clock and read delay
+    // On MicroPython this is setup by main.
+#ifndef MICROPY_BUILD_TYPE
+    set_qmi_timing();
+#endif
+
+    restore_interrupts(intr_stash);
+
+    const uint32_t dvi_clock_khz = 252000 >> 1;
+    uint vco_freq, post_div1, post_div2;
+    if (!check_sys_clock_khz(dvi_clock_khz, &vco_freq, &post_div1, &post_div2))
+        panic("System clock of %u kHz cannot be exactly achieved", dvi_clock_khz);
+    const uint32_t freq = vco_freq / (post_div1 * post_div2);
+
+    // Set the sys PLL to the requested freq
+    pll_init(pll_sys, PLL_COMMON_REFDIV, vco_freq, post_div1, post_div2);
+
+    // CLK HSTX = Requested freq
+    clock_configure(clk_hstx,
+                    0,
+                    CLOCKS_CLK_HSTX_CTRL_AUXSRC_VALUE_CLKSRC_PLL_SYS,
+                    freq, freq);
+}
+#endif
+
 int     main()
 {
+#if OVERCLOCK
+        set_overclock();
+#endif
+
         // set_sys_clock_khz(250*1000, true);
 
         setup_psram();

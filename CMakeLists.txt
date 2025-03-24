@@ -69,6 +69,8 @@ set(PIN_USB_HOST_DM 2 CACHE STRING "USB D- PIN")
 set(USE_AUDIO 1 CACHE STRING "Use audio")
 set(PIN_AUDIO_PWM 41 CACHE STRING "Pin for PWM audio")
 
+set(OVERCLOCK CACHE STRING "0")
+
 # See below, -DMEMSIZE=<size in KB> will configure umac's memory size,
 # overriding defaults.
 
@@ -114,6 +116,8 @@ if (USE_SD)
    set(EXTRA_SD_LIB FatFs_SPI)
    add_compile_definitions(SD_TX=${SD_TX} SD_RX=${SD_RX} SD_SCK=${SD_SCK} SD_CS=${SD_CS} SD_MHZ=${SD_MHZ})
 endif()
+
+add_compile_definitions(OVERCLOCK=${OVERCLOCK})
 
 if (USE_HSTX)
    add_compile_definitions(USE_VGA_RES=1)
