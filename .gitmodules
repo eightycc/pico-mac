@@ -1,5 +1,5 @@
 [submodule "external/umac"]
-	url = https://github.com/jepler/umac
+	url = https://github.com/adafruit/umac
 	path = external/umac
 	branch = soundemu
 [submodule "external/no-OS-FatFS-SD-SPI-RPi-Pico"]
@@ -13,5 +13,5 @@
 	url = https://github.com/tannewt/Pico-PIO-USB
 [submodule "external/pico-extras"]
 	path = external/pico-extras
-	url = https://github.com/jepler/pico-extras.git
+	url = https://github.com/adafruit/pico-extras.git
 	branch = i2s-audio-rp2350b-high-pins
