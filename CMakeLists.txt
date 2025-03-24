@@ -71,12 +71,44 @@ set(PIN_AUDIO_PWM 41 CACHE STRING "Pin for PWM audio")
 
 # See below, -DMEMSIZE=<size in KB> will configure umac's memory size,
 # overriding defaults.
+set(MEMSIZE 128 CACHE STRING "Memory size, in KB")
+
+if (USE_HSTX)
+   add_compile_definitions(USE_VGA_RES=1)
+   add_compile_definitions(HSTX_CKP=${HSTX_CKP} HSTX_D0P=${HSTX_D0P} HSTX_D1P=${HSTX_D1P} HSTX_D2P=${HSTX_D2P})
+   set(VIDEO_SRC src/video_hstx.c)
+else()
+  add_compile_definitions(GPIO_VID_BASE=${VIDEO_PIN})
+  set(VIDEO_SRC src/video_vga.c)
+endif()
+
+if (USE_VGA_RES)
+ add_compile_definitions(USE_VGA_RES=1)
+ add_compile_definitions(DISP_WIDTH=640)
+ add_compile_definitions(DISP_HEIGHT=480)
+ set(RES "640x480")
+else()
+ add_compile_definitions(DISP_WIDTH=512)
+ add_compile_definitions(DISP_HEIGHT=342)
+ set(RES "512x342")
+endif()
+
+if (USE_PSRAM)
+  add_compile_definitions(PIN_PSRAM_CS=${PSRAM_CS} USE_PSRAM=1)
+  set(OPT_PSRAM "-psram")
+else()
+  add_compile_definitions(USE_PSRAM=0)
+  set(OPT_PSRAM "")
+endif()
+
+set(FIRMWARE "pico-mac-${PICO_BOARD}-${MEMSIZE}k-${RES}${OPT_PSRAM}")
+
 
 # initialize the SDK based on PICO_SDK_PATH
 # note: this must happen before project()
 include(pico_sdk_import.cmake)
 
-project(firmware)
+project(${FIRMWARE})
 
 # initialize the Raspberry Pi Pico SDK
 pico_sdk_init()
@@ -103,8 +135,8 @@ set(UMAC_SOURCES
   ${UMAC_MUSASHI_PATH}/softfloat/softfloat.c
   )
 
-set(MEMSIZE 128 CACHE STRING "Memory size, in KB")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ggdb -g3 -O3 -DPICO -DMUSASHI_CNF=\\\"../include/m68kconf.h\\\" -DUMAC_MEMSIZE=${MEMSIZE}")
+
 
 if (USE_SD)
    add_compile_definitions(USE_SD=1)
@@ -113,23 +145,6 @@ if (USE_SD)
    set(EXTRA_SD_SRC src/sd_hw_config.c)
    set(EXTRA_SD_LIB FatFs_SPI)
    add_compile_definitions(SD_TX=${SD_TX} SD_RX=${SD_RX} SD_SCK=${SD_SCK} SD_CS=${SD_CS} SD_MHZ=${SD_MHZ})
-endif()
-
-if (USE_HSTX)
-   add_compile_definitions(USE_VGA_RES=1)
-   add_compile_definitions(HSTX_CKP=${HSTX_CKP} HSTX_D0P=${HSTX_D0P} HSTX_D1P=${HSTX_D1P} HSTX_D2P=${HSTX_D2P})
-   set(VIDEO_SRC src/video_hstx.c)
-else()
-  add_compile_definitions(GPIO_VID_BASE=${VIDEO_PIN})
-  set(VIDEO_SRC src/video_vga.c)
-endif()
-if (USE_VGA_RES)
- add_compile_definitions(USE_VGA_RES=1)
- add_compile_definitions(DISP_WIDTH=640)
- add_compile_definitions(DISP_HEIGHT=480)
-else()
- add_compile_definitions(DISP_WIDTH=512)
- add_compile_definitions(DISP_HEIGHT=342)
 endif()
 
 add_compile_definitions(PIN_USB_HOST_DP=${PIN_USB_HOST_DP})
@@ -147,12 +162,6 @@ if (NOT UART_RX STREQUAL "")
   add_compile_definitions(PICO_DEFAULT_UART_RX_PIN=${UART_RX})
 endif()
 
-if (USE_PSRAM)
-  add_compile_definitions(PIN_PSRAM_CS=${PSRAM_CS} USE_PSRAM=1)
-else()
-  add_compile_definitions(USE_PSRAM=0)
-endif()
-
 if (USE_AUDIO)
    add_subdirectory(external/pico-extras/src/rp2_common/pico_audio_i2s)
    add_subdirectory(external/pico-extras/src/common/pico_audio)
@@ -162,7 +171,7 @@ if (USE_AUDIO)
 endif()
 
 if (TARGET tinyusb_device)
-  add_executable(firmware
+  add_executable(${FIRMWARE}
     src/main.c
     ${VIDEO_SRC}
     src/kbd.c
@@ -185,9 +194,9 @@ if (TARGET tinyusb_device)
   add_custom_target(prepare_umac
     DEPENDS ${UMAC_MUSASHI_PATH}/m68kops.c
     )
-  add_dependencies(firmware prepare_umac)
+  add_dependencies(${FIRMWARE} prepare_umac)
 
-  target_link_libraries(firmware
+  target_link_libraries(${FIRMWARE}
     pico_stdlib
     pico_multicore
     tinyusb_host
@@ -199,7 +208,7 @@ if (TARGET tinyusb_device)
     ${EXTRA_AUDIO_LIB}
     )
 
-  target_include_directories(firmware PRIVATE
+  target_include_directories(${FIRMWARE} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/include
     ${PICO_TINYUSB_PATH}/hw
     ${PICO_TINYUSB_PATH}/src
@@ -210,13 +219,13 @@ if (TARGET tinyusb_device)
     )
 
   if (NOT USE_HSTX)
-    pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/src/pio_video.pio)
+    pico_generate_pio_header(${FIRMWARE} ${CMAKE_CURRENT_LIST_DIR}/src/pio_video.pio)
   endif()
 
-  pico_enable_stdio_uart(firmware 1)
+  pico_enable_stdio_uart(${FIRMWARE} 1)
 
   # Needed for UF2:
-  pico_add_extra_outputs(firmware)
+  pico_add_extra_outputs(${FIRMWARE})
 
 elseif(PICO_ON_DEVICE)
    message(WARNING "not building firmware because TinyUSB submodule is not initialized in the SDK")
