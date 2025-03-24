@@ -40,7 +40,8 @@
 #include "video.h"
 #include "kbd.h"
 
-#include "bsp/rp2040/board.h"
+#include "pio_usb_configuration.h"
+#include "bsp/rp2040/boards/adafruit_fruit_jam/board.h"
 #include "tusb.h"
 
 #include "umac.h"
@@ -50,6 +51,19 @@
 #include "ff.h"
 #include "rtc.h"
 #include "hw_config.h"
+#endif
+
+#if USE_PSRAM
+#include "hardware/structs/qmi.h"
+#include "hardware/structs/xip.h"
+#endif
+
+#if ENABLE_AUDIO
+#include "pico/audio_i2s.h"
+#include "hardware/i2c.h"
+uint8_t *audio_base;
+static void audio_setup();
+static bool audio_poll();
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -68,7 +82,16 @@ static const uint8_t umac_rom[] = {
 #include "umac-rom.h"
 };
 
+#if USE_PSRAM
+#define umac_ram ((uint8_t*)0x11000000)
+#else
 static uint8_t umac_ram[RAM_SIZE];
+#endif
+
+#define MIRROR_FRAMEBUFFER (USE_PSRAM || DISP_WIDTH != 640)
+#if MIRROR_FRAMEBUFFER
+static uint32_t umac_framebuffer_mirror[640*480/32];
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -87,14 +110,40 @@ static void     poll_led_etc()
         if (absolute_time_diff_us(last, now) > 500*1000) {
                 last = now;
 
-                led_on ^= 1;
-                gpio_put(GPIO_LED_PIN, led_on);
+                //led_on ^= 1;
+                //gpio_put(GPIO_LED_PIN, led_on);
         }
 }
 
 static int umac_cursor_x = 0;
 static int umac_cursor_y = 0;
 static int umac_cursor_button = 0;
+
+#define umac_get_audio_offset() (RAM_SIZE - 768)
+#if MIRROR_FRAMEBUFFER
+static void copy_framebuffer() {
+    uint32_t *src = (uint32_t*)(umac_ram + umac_get_fb_offset());
+#if DISP_WIDTH==640 && DISP_HEIGHT==480
+    uint32_t *dest = umac_framebuffer_mirror;
+    for(int i=0; i<640*480/32; i++) {
+        *dest++ = *src++;
+    }
+#elif DISP_WIDTH==512 && DISP_HEIGHT==342
+    #define DISP_XOFFSET ((640 - DISP_WIDTH) / 32 / 2)
+    #define DISP_YOFFSET ((480 - DISP_HEIGHT) / 2)
+    #define LONGS_PER_INPUT_ROW (DISP_WIDTH / 32)
+    #define LONGS_PER_OUTPUT_ROW (640 / 32)
+    for(int i=0; i<DISP_HEIGHT; i++) {
+        uint32_t *dest = umac_framebuffer_mirror + (DISP_YOFFSET * LONGS_PER_OUTPUT_ROW + DISP_XOFFSET) + LONGS_PER_OUTPUT_ROW * i;
+        for(int j=0; j<LONGS_PER_INPUT_ROW; j++) {
+          *dest++ = *src++ ^ 0xffffffff;
+        }
+    }
+#else
+#error Unsupported display geometry for framebuffer mirroring
+#endif
+}
+#endif
 
 static void     poll_umac()
 {
@@ -106,7 +155,14 @@ static void     poll_umac()
 
         int64_t p_1hz = absolute_time_diff_us(last_1hz, now);
         int64_t p_vsync = absolute_time_diff_us(last_vsync, now);
-        if (p_vsync >= 16667) {
+        bool pending_vsync = p_vsync > 16667;
+#if ENABLE_AUDIO
+        pending_vsync |= audio_poll();
+#endif
+        if (pending_vsync) {
+#if MIRROR_FRAMEBUFFER
+                copy_framebuffer();
+#endif
                 /* FIXME: Trigger this off actual vsync */
                 umac_vsync_event();
                 last_vsync = now;
@@ -213,7 +269,7 @@ static void     disc_setup(disc_descr_t discs[DISC_NUM_DRIVES])
                 printf("  *** Can't open %s: %s (%d)!\n", disc0_name, FRESULT_str(fr), fr);
                 goto no_sd;
         } else {
-                printf("  Opened, size 0x%x\n", f_size(&discfp));
+                printf("  Opened, size %d (0x%x)\n", (unsigned)f_size(&discfp), (unsigned)f_size(&discfp));
                 if (read_only)
                         printf("  (disc is read-only)\n");
                 discs[0].base = 0; // Means use R/W ops
@@ -254,8 +310,15 @@ static void     core1_main()
         /* Video runs on core 1, i.e. IRQs/DMA are unaffected by
          * core 0's USB activity.
          */
+#if MIRROR_FRAMEBUFFER
+        video_init((uint32_t *)(umac_framebuffer_mirror));
+#else
         video_init((uint32_t *)(umac_ram + umac_get_fb_offset()));
+#endif
 
+#if ENABLE_AUDIO
+        audio_base = (uint8_t*)umac_ram + umac_get_audio_offset();
+#endif
         printf("Enjoyable Mac times now begin:\n\n");
 
         while (true) {
@@ -263,17 +326,181 @@ static void     core1_main()
         }
 }
 
+size_t psram_size;
+
+size_t _psram_size;
+static void __no_inline_not_in_flash_func(setup_psram)(void) {
+    _psram_size = 0;
+#if USE_PSRAM
+    gpio_set_function(PIN_PSRAM_CS, GPIO_FUNC_XIP_CS1);
+    uint32_t save = save_and_disable_interrupts();
+    // Try and read the PSRAM ID via direct_csr.
+    qmi_hw->direct_csr = 30 << QMI_DIRECT_CSR_CLKDIV_LSB |
+        QMI_DIRECT_CSR_EN_BITS;
+    // Need to poll for the cooldown on the last XIP transfer to expire
+    // (via direct-mode BUSY flag) before it is safe to perform the first
+    // direct-mode operation
+    while ((qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) != 0) {
+    }
+
+    // Exit out of QMI in case we've inited already
+    qmi_hw->direct_csr |= QMI_DIRECT_CSR_ASSERT_CS1N_BITS;
+    // Transmit as quad.
+    qmi_hw->direct_tx = QMI_DIRECT_TX_OE_BITS |
+        QMI_DIRECT_TX_IWIDTH_VALUE_Q << QMI_DIRECT_TX_IWIDTH_LSB |
+        0xf5;
+    while ((qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) != 0) {
+    }
+    (void)qmi_hw->direct_rx;
+    qmi_hw->direct_csr &= ~(QMI_DIRECT_CSR_ASSERT_CS1N_BITS);
+
+    // Read the id
+    qmi_hw->direct_csr |= QMI_DIRECT_CSR_ASSERT_CS1N_BITS;
+    uint8_t kgd = 0;
+    uint8_t eid = 0;
+    for (size_t i = 0; i < 7; i++) {
+        if (i == 0) {
+            qmi_hw->direct_tx = 0x9f;
+        } else {
+            qmi_hw->direct_tx = 0xff;
+        }
+        while ((qmi_hw->direct_csr & QMI_DIRECT_CSR_TXEMPTY_BITS) == 0) {
+        }
+        while ((qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) != 0) {
+        }
+        if (i == 5) {
+            kgd = qmi_hw->direct_rx;
+        } else if (i == 6) {
+            eid = qmi_hw->direct_rx;
+        } else {
+            (void)qmi_hw->direct_rx;
+        }
+    }
+    // Disable direct csr.
+    qmi_hw->direct_csr &= ~(QMI_DIRECT_CSR_ASSERT_CS1N_BITS | QMI_DIRECT_CSR_EN_BITS);
+
+    if (kgd != 0x5D) {
+        restore_interrupts(save);
+        return;
+    }
+
+    // Enable quad mode.
+    qmi_hw->direct_csr = 30 << QMI_DIRECT_CSR_CLKDIV_LSB |
+        QMI_DIRECT_CSR_EN_BITS;
+    // Need to poll for the cooldown on the last XIP transfer to expire
+    // (via direct-mode BUSY flag) before it is safe to perform the first
+    // direct-mode operation
+    while ((qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) != 0) {
+    }
+
+    // RESETEN, RESET and quad enable
+    for (uint8_t i = 0; i < 3; i++) {
+        qmi_hw->direct_csr |= QMI_DIRECT_CSR_ASSERT_CS1N_BITS;
+        if (i == 0) {
+            qmi_hw->direct_tx = 0x66;
+        } else if (i == 1) {
+            qmi_hw->direct_tx = 0x99;
+        } else {
+            qmi_hw->direct_tx = 0x35;
+        }
+        while ((qmi_hw->direct_csr & QMI_DIRECT_CSR_BUSY_BITS) != 0) {
+        }
+        qmi_hw->direct_csr &= ~(QMI_DIRECT_CSR_ASSERT_CS1N_BITS);
+        for (size_t j = 0; j < 20; j++) {
+            asm ("nop");
+        }
+        (void)qmi_hw->direct_rx;
+    }
+    // Disable direct csr.
+    qmi_hw->direct_csr &= ~(QMI_DIRECT_CSR_ASSERT_CS1N_BITS | QMI_DIRECT_CSR_EN_BITS);
+
+    qmi_hw->m[1].timing =
+        QMI_M0_TIMING_PAGEBREAK_VALUE_1024 << QMI_M0_TIMING_PAGEBREAK_LSB | // Break between pages.
+            3 << QMI_M0_TIMING_SELECT_HOLD_LSB | // Delay releasing CS for 3 extra system cycles.
+            1 << QMI_M0_TIMING_COOLDOWN_LSB |
+            1 << QMI_M0_TIMING_RXDELAY_LSB |
+            16 << QMI_M0_TIMING_MAX_SELECT_LSB | // In units of 64 system clock cycles. PSRAM says 8us max. 8 / 0.00752 / 64 = 16.62
+            7 << QMI_M0_TIMING_MIN_DESELECT_LSB | // In units of system clock cycles. PSRAM says 50ns.50 / 7.52 = 6.64
+            2 << QMI_M0_TIMING_CLKDIV_LSB;
+    qmi_hw->m[1].rfmt = (QMI_M0_RFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_PREFIX_WIDTH_LSB |
+            QMI_M0_RFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_RFMT_ADDR_WIDTH_LSB |
+            QMI_M0_RFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_RFMT_SUFFIX_WIDTH_LSB |
+            QMI_M0_RFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_RFMT_DUMMY_WIDTH_LSB |
+            QMI_M0_RFMT_DUMMY_LEN_VALUE_24 << QMI_M0_RFMT_DUMMY_LEN_LSB |
+            QMI_M0_RFMT_DATA_WIDTH_VALUE_Q << QMI_M0_RFMT_DATA_WIDTH_LSB |
+            QMI_M0_RFMT_PREFIX_LEN_VALUE_8 << QMI_M0_RFMT_PREFIX_LEN_LSB |
+            QMI_M0_RFMT_SUFFIX_LEN_VALUE_NONE << QMI_M0_RFMT_SUFFIX_LEN_LSB);
+    qmi_hw->m[1].rcmd = 0xeb << QMI_M0_RCMD_PREFIX_LSB |
+        0 << QMI_M0_RCMD_SUFFIX_LSB;
+    qmi_hw->m[1].wfmt = (QMI_M0_WFMT_PREFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_PREFIX_WIDTH_LSB |
+            QMI_M0_WFMT_ADDR_WIDTH_VALUE_Q << QMI_M0_WFMT_ADDR_WIDTH_LSB |
+            QMI_M0_WFMT_SUFFIX_WIDTH_VALUE_Q << QMI_M0_WFMT_SUFFIX_WIDTH_LSB |
+            QMI_M0_WFMT_DUMMY_WIDTH_VALUE_Q << QMI_M0_WFMT_DUMMY_WIDTH_LSB |
+            QMI_M0_WFMT_DUMMY_LEN_VALUE_NONE << QMI_M0_WFMT_DUMMY_LEN_LSB |
+            QMI_M0_WFMT_DATA_WIDTH_VALUE_Q << QMI_M0_WFMT_DATA_WIDTH_LSB |
+            QMI_M0_WFMT_PREFIX_LEN_VALUE_8 << QMI_M0_WFMT_PREFIX_LEN_LSB |
+            QMI_M0_WFMT_SUFFIX_LEN_VALUE_NONE << QMI_M0_WFMT_SUFFIX_LEN_LSB);
+    qmi_hw->m[1].wcmd = 0x38 << QMI_M0_WCMD_PREFIX_LSB |
+        0 << QMI_M0_WCMD_SUFFIX_LSB;
+
+    restore_interrupts(save);
+
+    _psram_size = 1024 * 1024; // 1 MiB
+    uint8_t size_id = eid >> 5;
+    if (eid == 0x26 || size_id == 2) {
+        _psram_size *= 8;
+    } else if (size_id == 0) {
+        _psram_size *= 2;
+    } else if (size_id == 1) {
+        _psram_size *= 4;
+    }
+
+    // Mark that we can write to PSRAM.
+    xip_ctrl_hw->ctrl |= XIP_CTRL_WRITABLE_M1_BITS;
+
+    // Test write to the PSRAM.
+    volatile uint32_t *psram_nocache = (volatile uint32_t *)0x15000000;
+    psram_nocache[0] = 0x12345678;
+    volatile uint32_t readback = psram_nocache[0];
+    if (readback != 0x12345678) {
+        _psram_size = 0;
+        return;
+    }
+#endif
+}
+
 int     main()
 {
-        set_sys_clock_khz(250*1000, true);
+        // set_sys_clock_khz(250*1000, true);
+
+        setup_psram();
 
 	stdio_init_all();
         io_init();
 
+#if ENABLE_AUDIO
+        audio_setup();
+#endif
+
         multicore_launch_core1(core1_main);
 
 	printf("Starting, init usb\n");
-        tusb_init();
+
+        pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
+        pio_cfg.tx_ch = 2;
+        pio_cfg.pin_dp = PICO_DEFAULT_PIO_USB_DP_PIN;
+        _Static_assert(PIN_USB_HOST_DP + 1 == PIN_USB_HOST_DM || PIN_USB_HOST_DP - 1 == PIN_USB_HOST_DM, "Permitted USB D+/D- configuration");
+        pio_cfg.pinout = PIN_USB_HOST_DP + 1 == PIN_USB_HOST_DM ? PIO_USB_PINOUT_DPDM : PIO_USB_PINOUT_DMDP;
+
+#ifdef PICO_DEFAULT_PIO_USB_VBUSEN_PIN
+        gpio_init(PICO_DEFAULT_PIO_USB_VBUSEN_PIN);
+        gpio_set_dir(PICO_DEFAULT_PIO_USB_VBUSEN_PIN, GPIO_OUT);
+        gpio_put(PICO_DEFAULT_PIO_USB_VBUSEN_PIN, PICO_DEFAULT_PIO_USB_VBUSEN_STATE);
+#endif
+
+        tuh_configure(BOARD_TUH_RHPORT, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
+       
+        tuh_init(BOARD_TUH_RHPORT);
 
         /* This happens on core 0: */
 	while (true) {
@@ -285,3 +512,305 @@ int     main()
 	return 0;
 }
 
+#if ENABLE_AUDIO
+
+#define I2C_ADDR 0x18
+
+void writeRegister(uint8_t reg, uint8_t value) {
+  char buf[2];
+  buf[0] = reg;
+  buf[1] = value;
+  int res = i2c_write_timeout_us(i2c0, I2C_ADDR, buf, sizeof(buf), /* nostop */ false, 1000);
+  if (res != 2) {
+printf("res=%d\n", res);
+    panic("i2c_write_timeout failed: res=%d\n", res);
+  }
+  printf("Write Reg: %d = 0x%x\n", reg, value);
+}
+
+uint8_t readRegister(uint8_t reg) {
+  char buf[1];
+  buf[0] = reg;
+  int res = i2c_write_timeout_us(i2c0, I2C_ADDR, buf, sizeof(buf), /* nostop */ true, 1000);
+  if (res != 1) {
+printf("res=%d\n", res);
+    panic("i2c_write_timeout failed: res=%d\n", res);
+  }
+  res = i2c_read_timeout_us(i2c0, I2C_ADDR, buf, sizeof(buf), /* nostop */ false, 1000);
+  if (res != 1) {
+printf("res=%d\n", res);
+    panic("i2c_read_timeout failed: res=%d\n", res);
+  }
+  uint8_t value = buf[0];
+  printf("Read Reg: %d = 0x%x\n", reg, value);
+  return value;
+}
+
+void modifyRegister(uint8_t reg, uint8_t mask, uint8_t value) {
+  uint8_t current = readRegister(reg);
+  printf("Modify Reg: %d = [Before: 0x%x] with mask 0x%x and value 0x%x\n", reg, current, mask, value);
+  uint8_t new_value = (current & ~mask) | (value & mask);
+  writeRegister(reg, new_value);
+}
+
+void setPage(uint8_t page) {
+  printf("Set page %d\n", page);
+  writeRegister(0x00, page);
+}
+
+
+void Wire_begin() {
+    i2c_init(i2c0, 100000);
+    gpio_set_function(20, GPIO_FUNC_I2C);
+    gpio_set_function(21, GPIO_FUNC_I2C);
+}
+
+
+static void setup_i2s_dac() {
+gpio_init(22);
+gpio_set_dir(22, true);
+gpio_put(22, true); // allow i2s to come out of reset
+
+  Wire_begin();
+  sleep_ms(1000);
+  
+  printf("initialize codec\n");
+
+  // Reset codec
+  writeRegister(0x01, 0x01);
+  sleep_ms(10);
+
+  // Interface Control
+  modifyRegister(0x1B, 0xC0, 0x00);
+  modifyRegister(0x1B, 0x30, 0x00);
+
+  // Clock MUX and PLL settings
+  modifyRegister(0x04, 0x03, 0x03);
+  modifyRegister(0x04, 0x0C, 0x04);
+  
+  writeRegister(0x06, 0x20); // PLL J
+  writeRegister(0x08, 0x00); // PLL D LSB
+  writeRegister(0x07, 0x00); // PLL D MSB
+  
+  modifyRegister(0x05, 0x0F, 0x02); // PLL P/R
+  modifyRegister(0x05, 0x70, 0x10);
+
+  // DAC/ADC Config
+  modifyRegister(0x0B, 0x7F, 0x08); // NDAC
+  modifyRegister(0x0B, 0x80, 0x80);
+  
+  modifyRegister(0x0C, 0x7F, 0x02); // MDAC
+  modifyRegister(0x0C, 0x80, 0x80);
+  
+  modifyRegister(0x12, 0x7F, 0x08); // NADC
+  modifyRegister(0x12, 0x80, 0x80);
+  
+  modifyRegister(0x13, 0x7F, 0x02); // MADC
+  modifyRegister(0x13, 0x80, 0x80);
+
+  // PLL Power Up
+  modifyRegister(0x05, 0x80, 0x80);
+
+  // Headset and GPIO Config
+setPage(1);
+modifyRegister(0x2e, 0xFF, 0x0b); 
+setPage(0);
+  modifyRegister(0x43, 0x80, 0x80); // Headset Detect
+  modifyRegister(0x30, 0x80, 0x80); // INT1 Control
+  modifyRegister(0x33, 0x3C, 0x14); // GPIO1
+
+
+  // DAC Setup
+  modifyRegister(0x3F, 0xC0, 0xC0);
+
+  // DAC Routing
+  setPage(1);
+  modifyRegister(0x23, 0xC0, 0x40);
+  modifyRegister(0x23, 0x0C, 0x04);
+
+  // DAC Volume Control
+  setPage(0);
+  modifyRegister(0x40, 0x0C, 0x00);
+  writeRegister(0x41, 0x28); // Left DAC Vol
+  writeRegister(0x42, 0x28); // Right DAC Vol
+
+  // ADC Setup
+  modifyRegister(0x51, 0x80, 0x80);
+  modifyRegister(0x52, 0x80, 0x00);
+  writeRegister(0x53, 0x68); // ADC Volume
+
+  // Headphone and Speaker Setup
+  setPage(1);
+  modifyRegister(0x1F, 0xC0, 0xC0); // HP Driver
+  modifyRegister(0x28, 0x04, 0x04); // HP Left Gain
+  modifyRegister(0x29, 0x04, 0x04); // HP Right Gain
+  writeRegister(0x24, 0x0A);  // Left Analog HP
+  writeRegister(0x25, 0x0A);  // Right Analog HP
+  
+  modifyRegister(0x28, 0x78, 0x40); // HP Left Gain
+  modifyRegister(0x29, 0x78, 0x40); // HP Right Gain
+
+  // Speaker Amp
+  modifyRegister(0x20, 0x80, 0x80);
+  modifyRegister(0x2A, 0x04, 0x04);
+  modifyRegister(0x2A, 0x18, 0x08);
+  writeRegister(0x26, 0x0A);
+
+  // Return to page 0
+  setPage(0);
+
+  printf("Initialization complete!\n");
+
+
+  // Read all registers for verification
+  printf("Reading all registers for verification:\n");
+  
+  setPage(0);
+  readRegister(0x00);  // AIC31XX_PAGECTL
+  readRegister(0x01);  // AIC31XX_RESET
+  readRegister(0x03);  // AIC31XX_OT_FLAG
+  readRegister(0x04);  // AIC31XX_CLKMUX
+  readRegister(0x05);  // AIC31XX_PLLPR
+  readRegister(0x06);  // AIC31XX_PLLJ
+  readRegister(0x07);  // AIC31XX_PLLDMSB
+  readRegister(0x08);  // AIC31XX_PLLDLSB
+  readRegister(0x0B);  // AIC31XX_NDAC
+  readRegister(0x0C);  // AIC31XX_MDAC
+  readRegister(0x0D);  // AIC31XX_DOSRMSB
+  readRegister(0x0E);  // AIC31XX_DOSRLSB
+  readRegister(0x10);  // AIC31XX_MINI_DSP_INPOL
+  readRegister(0x12);  // AIC31XX_NADC
+  readRegister(0x13);  // AIC31XX_MADC
+  readRegister(0x14);  // AIC31XX_AOSR
+  readRegister(0x19);  // AIC31XX_CLKOUTMUX
+  readRegister(0x1A);  // AIC31XX_CLKOUTMVAL
+  readRegister(0x1B);  // AIC31XX_IFACE1
+  readRegister(0x1C);  // AIC31XX_DATA_OFFSET
+  readRegister(0x1D);  // AIC31XX_IFACE2
+  readRegister(0x1E);  // AIC31XX_BCLKN
+  readRegister(0x1F);  // AIC31XX_IFACESEC1
+  readRegister(0x20);  // AIC31XX_IFACESEC2
+  readRegister(0x21);  // AIC31XX_IFACESEC3
+  readRegister(0x22);  // AIC31XX_I2C
+  readRegister(0x24);  // AIC31XX_ADCFLAG
+  readRegister(0x25);  // AIC31XX_DACFLAG1
+  readRegister(0x26);  // AIC31XX_DACFLAG2
+  readRegister(0x27);  // AIC31XX_OFFLAG
+  readRegister(0x2C);  // AIC31XX_INTRDACFLAG
+  readRegister(0x2D);  // AIC31XX_INTRADCFLAG
+  readRegister(0x2E);  // AIC31XX_INTRDACFLAG2
+  readRegister(0x2F);  // AIC31XX_INTRADCFLAG2
+  readRegister(0x30);  // AIC31XX_INT1CTRL
+  readRegister(0x31);  // AIC31XX_INT2CTRL
+  readRegister(0x33);  // AIC31XX_GPIO1
+  readRegister(0x3C);  // AIC31XX_DACPRB
+  readRegister(0x3D);  // AIC31XX_ADCPRB
+  readRegister(0x3F);  // AIC31XX_DACSETUP
+  readRegister(0x40);  // AIC31XX_DACMUTE
+  readRegister(0x41);  // AIC31XX_LDACVOL
+  readRegister(0x42);  // AIC31XX_RDACVOL
+  readRegister(0x43);  // AIC31XX_HSDETECT
+  readRegister(0x51);  // AIC31XX_ADCSETUP
+  readRegister(0x52);  // AIC31XX_ADCFGA
+  readRegister(0x53);  // AIC31XX_ADCVOL
+
+  setPage(1);
+  readRegister(0x1F);  // AIC31XX_HPDRIVER
+  readRegister(0x20);  // AIC31XX_SPKAMP
+  readRegister(0x21);  // AIC31XX_HPPOP
+  readRegister(0x22);  // AIC31XX_SPPGARAMP
+  readRegister(0x23);  // AIC31XX_DACMIXERROUTE
+  readRegister(0x24);  // AIC31XX_LANALOGHPL
+  readRegister(0x25);  // AIC31XX_RANALOGHPR
+  readRegister(0x26);  // AIC31XX_LANALOGSPL
+  readRegister(0x27);  // AIC31XX_RANALOGSPR
+  readRegister(0x28);  // AIC31XX_HPLGAIN
+  readRegister(0x29);  // AIC31XX_HPRGAIN
+  readRegister(0x2A);  // AIC31XX_SPLGAIN
+  readRegister(0x2B);  // AIC31XX_SPRGAIN
+  readRegister(0x2C);  // AIC31XX_HPCONTROL
+  readRegister(0x2E);  // AIC31XX_MICBIAS
+  readRegister(0x2F);  // AIC31XX_MICPGA
+  readRegister(0x30);  // AIC31XX_MICPGAPI
+  readRegister(0x31);  // AIC31XX_MICPGAMI
+  readRegister(0x32);  // AIC31XX_MICPGACM
+
+  setPage(3);
+  readRegister(0x10);  // AIC31XX_TIMERDIVIDER
+  
+}
+static int volscale;
+
+
+#define SAMPLES_PER_BUFFER (370)
+int16_t audio[SAMPLES_PER_BUFFER];
+
+void umac_audio_trap() {
+static int led_on;
+                led_on ^= 1;
+                gpio_put(GPIO_LED_PIN, 1);
+    int32_t  offset = 128;
+    uint16_t *audiodata = (uint16_t*)audio_base;
+    int scale = volscale;
+    if (!scale) {
+        memset(audio, 0, sizeof(audio));
+        return;
+    }
+    int16_t *stream = audio;
+    for(int i=0; i<SAMPLES_PER_BUFFER; i++) {
+        int32_t a = (*audiodata++ & 0xff) - offset; 
+        a = (a * scale) >> 8;
+        *stream++ = a;
+    }
+}
+
+struct audio_buffer_pool *producer_pool;
+
+static audio_format_t audio_format = {
+        .format = AUDIO_BUFFER_FORMAT_PCM_S16,
+        .sample_freq = 22256, // 60.15Hz*370, rounded up
+        .channel_count = 1,
+};
+
+const struct audio_i2s_config config =
+        {
+            .data_pin = PICO_AUDIO_I2S_DATA_PIN,
+            .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
+            .clock_pin_swapped = true,
+            .pio_sm = 0,
+            .dma_channel = 3
+        };
+
+static struct audio_buffer_format producer_format = {
+        .format = &audio_format,
+        .sample_stride = 2
+};
+
+static void audio_setup() {
+setup_i2s_dac();
+    const struct audio_format *output_format = audio_i2s_setup(&audio_format, &config);
+    assert(output_format);
+    if (!output_format) {
+        panic("PicoAudio: Unable to open audio device.\n");
+    }
+    producer_pool = audio_new_producer_pool(&producer_format, 3, SAMPLES_PER_BUFFER);
+    assert(producer_pool);
+    bool ok = audio_i2s_connect(producer_pool);
+    assert(ok);
+    audio_i2s_set_enabled(true);
+}
+
+static bool audio_poll() {
+    audio_buffer_t *buffer = take_audio_buffer(producer_pool, false);
+    if (!buffer) return false;
+                gpio_put(GPIO_LED_PIN, 0);
+    memcpy(buffer->buffer->bytes, audio, sizeof(audio));
+    buffer->sample_count = SAMPLES_PER_BUFFER;
+    give_audio_buffer(producer_pool, buffer);
+    return true;
+}
+
+void umac_audio_cfg(int volume, int sndres) {
+    volscale = sndres ? 0 : 65536 * volume / 7;
+}
+#endif

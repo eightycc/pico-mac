@@ -1,0 +1,62 @@
+name: Build pico-mac
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+  check_suite:
+    types: [rerequested]
+
+
+jobs:
+  bins:
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Install ARM GCC
+      uses: carlosperate/arm-none-eabi-gcc-action@v1
+      with:
+        release: '13.2.Rel1'
+
+    - name: install sdl
+      run: sudo apt-get update && sudo apt-get install -y eatmydata && sudo eatmydata apt-get install -y libsdl2-dev
+
+    - name: get submodules
+      run: git submodule update --init --recursive
+
+    - name: get pico-sdk
+      run: git clone --depth=1 -b adafruit-fruit-jam https://github.com/adafruit/pico-sdk ../pico-sdk
+
+    - name: build targets
+      run: |
+          ./fetch-rom-dsk.sh
+          ./fruitjam-build.sh -m 4096
+          ./fruitjam-build.sh -m 4096 -v
+          ./fruitjam-build.sh -m 400
+          ./fruitjam-build.sh -m 400 -v
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: uf2 files
+        path: build*/*.uf2
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: elf files
+        path: build*/*.elf
+
+    - name: Create release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build*/*.uf2
+        fail_on_unmatched_files: true
+        body: "Select a uf2 from the list below."
+
