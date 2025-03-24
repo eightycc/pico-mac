@@ -787,6 +787,7 @@ static struct audio_buffer_format producer_format = {
 };
 
 static void audio_setup() {
+setup_i2s_dac();
     const struct audio_format *output_format = audio_i2s_setup(&audio_format, &config);
     assert(output_format);
     if (!output_format) {
