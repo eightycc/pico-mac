@@ -768,7 +768,7 @@ struct audio_buffer_pool *producer_pool;
 
 static audio_format_t audio_format = {
         .format = AUDIO_BUFFER_FORMAT_PCM_S16,
-        .sample_freq = 20000,
+        .sample_freq = 22256, // 60.15Hz*370, rounded up
         .channel_count = 1,
 };
 
