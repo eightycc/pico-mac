@@ -10,7 +10,7 @@ set -e
 DISP_WIDTH=512
 DISP_HEIGHT=342
 MEMSIZE=400
-DISK_IMAGE=""
+DISC_IMAGE=
 CMAKE_ARGS=""
 
 while getopts "hvd:m:" o; do
@@ -24,14 +24,14 @@ while getopts "hvd:m:" o; do
         MEMSIZE=$OPTARG
         ;;
     (d)
-        DISK_IMAGE=$OPTARG
+        DISC_IMAGE=$OPTARG
         ;;
     (h|?)
         echo "Usage: $0 [-v] [-m KiB] [-d diskimage]"
         echo ""
         echo "   -v: Use framebuffer resolution 640x480 instead of 512x342"
         echo "   -m: Set memory size in KiB"
-        echo "   -d: Specify disk image to include"
+        echo "   -d: Specify disc image to include"
         echo ""
         echo "PSRAM is automatically set depending on memory & framebuffer details"
         exit
@@ -54,22 +54,14 @@ if [ "$MIRROR_FRAMEBUFFER" -eq 0 ]; then
 fi
 
 # Append disk name to build directory if disk image is specified
-if [ -n "$DISK_IMAGE" ] && [ -f "$DISK_IMAGE" ]; then
+if [ -n "$DISC_IMAGE" ] && [ -f "$DISC_IMAGE" ]; then
     # Extract filename without extension
-    DISK_NAME=$(basename "$DISK_IMAGE" | sed 's/\.[^.]*$//')
-    TAG=${TAG}_${DISK_NAME}
+    DISC_IMAGE=$(basename "$DISC_IMAGE" | sed 's/\.[^.]*$//')
+    CMAKE_ARGS="$CMAKE_ARGS -DDISK_IMAGE=${DISC_IMAGE}"
+    TAG=${TAG}_${DISC_IMAGE}
 fi
 
 set -x
-make -C external/umac clean
-make -C external/umac DISP_WIDTH=${DISP_WIDTH} DISP_HEIGHT=${DISP_HEIGHT} MEMSIZE=${MEMSIZE}
-rm -f rom.bin
-./external/umac/main -r '4D1F8172 - MacPlus v3.ROM' -W rom.bin || true
-[ -f rom.bin ]
-xxd -i < rom.bin > incbin/umac-rom.h
-if [ -n "$DISK_IMAGE" ] && [ -f "$DISK_IMAGE" ]; then
-    xxd -i < "$DISK_IMAGE" > incbin/umac-disc.h
-fi
 rm -rf build_${TAG}
 cmake -S . -B build_${TAG} \
     -DPICO_SDK_PATH=../pico-sdk \

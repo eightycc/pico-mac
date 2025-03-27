@@ -73,6 +73,8 @@ set(PIN_AUDIO_PWM 41 CACHE STRING "Pin for PWM audio")
 # overriding defaults.
 set(MEMSIZE 128 CACHE STRING "Memory size, in KB")
 
+set(DISC_IMAGE ${CMAKE_CURRENT_SOURCE_DIR}/umac0ro.img CACHE FILEPATH "Built-in disk image")
+
 if (USE_HSTX)
    add_compile_definitions(USE_VGA_RES=1)
    add_compile_definitions(HSTX_CKP=${HSTX_CKP} HSTX_D0P=${HSTX_D0P} HSTX_D1P=${HSTX_D1P} HSTX_D2P=${HSTX_D2P})
@@ -87,10 +89,12 @@ if (USE_VGA_RES)
  add_compile_definitions(DISP_WIDTH=640)
  add_compile_definitions(DISP_HEIGHT=480)
  set(RES "640x480")
+ set(RESFLAG "-v")
 else()
  add_compile_definitions(DISP_WIDTH=512)
  add_compile_definitions(DISP_HEIGHT=342)
  set(RES "512x342")
+ set(RESFLAG "")
 endif()
 
 if (USE_PSRAM)
@@ -187,6 +191,21 @@ if (TARGET tinyusb_device)
     )
 
   # The umac sources need to prepare Musashi (some sources are generated):
+  add_custom_command(OUTPUT incbin/umac-rom.h
+    COMMAND echo "*** Patching ROM ***"
+    COMMAND set -xe && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/incbin && make -C ${UMAC_PATH} patcher && ${UMAC_PATH}/patcher ${RESFLAG} -m ${MEMSIZE} -r "${CMAKE_CURRENT_LIST_DIR}/rom.bin" -w ${CMAKE_CURRENT_BINARY_DIR}/incbin/umac-rom.h
+    )
+  add_custom_target(prepare_rom
+    DEPENDS incbin/umac-rom.h
+    )
+
+  add_custom_command(OUTPUT incbin/umac-disc.h
+    COMMAND echo "DISC_IMAGE is ${DISC_IMAGE}" && mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/incbin && xxd -i < "${DISC_IMAGE}" > ${CMAKE_CURRENT_BINARY_DIR}/incbin/umac-disc.h
+    )
+  add_custom_target(prepare_disc
+    DEPENDS incbin/umac-disc.h
+    )
+
   add_custom_command(OUTPUT ${UMAC_MUSASHI_PATH}/m68kops.c
     COMMAND echo "*** Preparing umac source ***"
     COMMAND make -C ${UMAC_PATH} prepare
@@ -194,7 +213,7 @@ if (TARGET tinyusb_device)
   add_custom_target(prepare_umac
     DEPENDS ${UMAC_MUSASHI_PATH}/m68kops.c
     )
-  add_dependencies(${FIRMWARE} prepare_umac)
+  add_dependencies(${FIRMWARE} prepare_umac prepare_rom prepare_disc)
 
   target_link_libraries(${FIRMWARE}
     pico_stdlib
@@ -214,7 +233,7 @@ if (TARGET tinyusb_device)
     ${PICO_TINYUSB_PATH}/src
     ${UMAC_INCLUDE_PATHS}
     ${PIOUSB_PATH}/src
-    incbin
+    ${CMAKE_CURRENT_BINARY_DIR}/incbin
     ${CMAKE_CURRENT_LIST_DIR}
     )
 
