@@ -12,9 +12,13 @@ DISP_HEIGHT=342
 MEMSIZE=400
 DISC_IMAGE=
 CMAKE_ARGS=""
+OVERCLOCK=0
 
-while getopts "hvd:m:" o; do
+while getopts "hovd:m:" o; do
     case "$o" in
+    (o)
+        OVERCLOCK=1
+        ;;
     (v)
         DISP_WIDTH=640
         DISP_HEIGHT=480
@@ -30,8 +34,9 @@ while getopts "hvd:m:" o; do
         echo "Usage: $0 [-v] [-m KiB] [-d diskimage]"
         echo ""
         echo "   -v: Use framebuffer resolution 640x480 instead of 512x342"
-        echo "   -m: Set memory size in KiB"
+        echo "   -m: Set memory size in KiB (over 400kB requires psram)"
         echo "   -d: Specify disc image to include"
+        echo "   -o: Overclock to 264MHz (known to be incompatible with psram)"
         echo ""
         echo "PSRAM is automatically set depending on memory & framebuffer details"
         exit
@@ -44,6 +49,9 @@ shift $((OPTIND-1))
 TAG=fruitjam_${DISP_WIDTH}x${DISP_HEIGHT}_${MEMSIZE}k
 PSRAM=$((MEMSIZE > 400))
 if [ $PSRAM -ne 0 ] ; then
+    if [ $OVERCLOCK -ne 0 ]; then
+        echo "*** Overclock + PSRAM is known not to work. You have been warned."
+    fi
     TAG=${TAG}_psram
     CMAKE_ARGS="$CMAKE_ARGS -DUSE_PSRAM=1"
 fi
@@ -61,6 +69,10 @@ if [ -n "$DISC_IMAGE" ] && [ -f "$DISC_IMAGE" ]; then
     TAG=${TAG}_${DISC_IMAGE}
 fi
 
+if [ $OVERCLOCK -ne 0 ]; then
+    TAG=${TAG}_overclock
+fi
+
 set -x
 rm -rf build_${TAG}
 cmake -S . -B build_${TAG} \
@@ -72,5 +84,7 @@ cmake -S . -B build_${TAG} \
     -DSD_TX=35 -DSD_RX=36 -DSD_SCK=34 -DSD_CS=39 -DUSE_SD=1 \
     -DUART_TX=44 -DUART_RX=45 -DUART=0 \
     -DBOARD_FILE=boards/adafruit_fruit_jam.c \
+    -DSD_MHZ=16 \
+    -DOVERCLOCK=${OVERCLOCK} \
     ${CMAKE_ARGS} "$@"
 make -C build_${TAG} -j$(nproc)

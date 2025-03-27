@@ -55,6 +55,8 @@ set(HSTX_D0P 15 CACHE STRING "HSTX D0+ PIN")
 set(HSTX_D1P 17 CACHE STRING "HSTX D1+ PIN")
 set(HSTX_D2P 19 CACHE STRING "HSTX D2+ PIN")
 
+option(OVERCLOCK "Overclock to 264MHz (known incompatible with psram)" OFF)
+
 # Options for analog VGA output
 option(USE_VGA_RES "Video uses VGA (640x480) resolution" OFF)
 set(VIDEO_PIN 18 CACHE STRING "VGA Video GPIO base pin (followed by VS, CLK, HS)")
@@ -84,6 +86,13 @@ else()
   set(VIDEO_SRC src/video_vga.c)
 endif()
 
+if (OVERCLOCK)
+  add_compile_definitions(OVERCLOCK=1)
+  set(OPT_OC "-oc")
+else()
+  set(OPT_OC "")
+endif()
+
 if (USE_VGA_RES)
  add_compile_definitions(USE_VGA_RES=1)
  add_compile_definitions(DISP_WIDTH=640)
@@ -105,7 +114,7 @@ else()
   set(OPT_PSRAM "")
 endif()
 
-set(FIRMWARE "pico-mac-${PICO_BOARD}-${MEMSIZE}k-${RES}${OPT_PSRAM}")
+set(FIRMWARE "pico-mac-${PICO_BOARD}-${MEMSIZE}k-${RES}${OPT_PSRAM}${OPT_OC}")
 
 
 # initialize the SDK based on PICO_SDK_PATH
@@ -180,6 +189,7 @@ if (TARGET tinyusb_device)
     ${VIDEO_SRC}
     src/kbd.c
     src/hid.c
+    src/clocking.c
     ${EXTRA_SD_SRC}
 
     ${PICO_TINYUSB_PATH}/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c

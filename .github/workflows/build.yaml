@@ -39,18 +39,24 @@ jobs:
           ./fruitjam-build.sh -m 4096 -v
           ./fruitjam-build.sh -m 400
           ./fruitjam-build.sh -m 400 -v
+          ./fruitjam-build.sh -m 400 -o
+          ./fruitjam-build.sh -m 400 -v -o
+          mkdir uf2s
+          cp build*/*.uf2 uf2s/
+          mkdir elfs
+          cp build*/*.elf elfs/
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: uf2 files
-        path: build*/*.uf2
+        path: uf2s/*
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: elf files
-        path: build*/*.elf
+        path: elfs/*
 
     - name: Create release
       if: startsWith(github.ref, 'refs/tags/')

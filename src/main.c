@@ -45,6 +45,7 @@
 #include "tusb.h"
 
 #include "umac.h"
+#include "clocking.h"
 
 #if USE_SD
 #include "f_util.h"
@@ -471,12 +472,27 @@ static void __no_inline_not_in_flash_func(setup_psram)(void) {
 
 int     main()
 {
+#if defined(OVERCLOCK) && OVERCLOCK+0
+        overclock(CLK_SYS_264MHZ, 252000);
+#endif
         // set_sys_clock_khz(250*1000, true);
 
         setup_psram();
 
 	stdio_init_all();
         io_init();
+
+#define SHOW_CLK(i) printf("clk_get_hz(%s) -> %u\n", #i, clock_get_hz(i));
+        SHOW_CLK(clk_gpout0);
+        SHOW_CLK(clk_gpout1);
+        SHOW_CLK(clk_gpout2);
+        SHOW_CLK(clk_gpout3);
+        SHOW_CLK(clk_ref);
+        SHOW_CLK(clk_sys);
+        SHOW_CLK(clk_peri);
+        SHOW_CLK(clk_hstx);
+        SHOW_CLK(clk_usb);
+        SHOW_CLK(clk_adc);
 
 #if ENABLE_AUDIO
         audio_setup();
