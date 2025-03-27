@@ -525,7 +525,6 @@ void writeRegister(uint8_t reg, uint8_t value) {
 printf("res=%d\n", res);
     panic("i2c_write_timeout failed: res=%d\n", res);
   }
-  printf("Write Reg: %d = 0x%x\n", reg, value);
 }
 
 uint8_t readRegister(uint8_t reg) {
@@ -533,22 +532,18 @@ uint8_t readRegister(uint8_t reg) {
   buf[0] = reg;
   int res = i2c_write_timeout_us(i2c0, I2C_ADDR, buf, sizeof(buf), /* nostop */ true, 1000);
   if (res != 1) {
-printf("res=%d\n", res);
     panic("i2c_write_timeout failed: res=%d\n", res);
   }
   res = i2c_read_timeout_us(i2c0, I2C_ADDR, buf, sizeof(buf), /* nostop */ false, 1000);
   if (res != 1) {
-printf("res=%d\n", res);
     panic("i2c_read_timeout failed: res=%d\n", res);
   }
   uint8_t value = buf[0];
-  printf("Read Reg: %d = 0x%x\n", reg, value);
   return value;
 }
 
 void modifyRegister(uint8_t reg, uint8_t mask, uint8_t value) {
   uint8_t current = readRegister(reg);
-  printf("Modify Reg: %d = [Before: 0x%x] with mask 0x%x and value 0x%x\n", reg, current, mask, value);
   uint8_t new_value = (current & ~mask) | (value & mask);
   writeRegister(reg, new_value);
 }
@@ -660,84 +655,6 @@ setPage(0);
   setPage(0);
 
   printf("Initialization complete!\n");
-
-
-  // Read all registers for verification
-  printf("Reading all registers for verification:\n");
-  
-  setPage(0);
-  readRegister(0x00);  // AIC31XX_PAGECTL
-  readRegister(0x01);  // AIC31XX_RESET
-  readRegister(0x03);  // AIC31XX_OT_FLAG
-  readRegister(0x04);  // AIC31XX_CLKMUX
-  readRegister(0x05);  // AIC31XX_PLLPR
-  readRegister(0x06);  // AIC31XX_PLLJ
-  readRegister(0x07);  // AIC31XX_PLLDMSB
-  readRegister(0x08);  // AIC31XX_PLLDLSB
-  readRegister(0x0B);  // AIC31XX_NDAC
-  readRegister(0x0C);  // AIC31XX_MDAC
-  readRegister(0x0D);  // AIC31XX_DOSRMSB
-  readRegister(0x0E);  // AIC31XX_DOSRLSB
-  readRegister(0x10);  // AIC31XX_MINI_DSP_INPOL
-  readRegister(0x12);  // AIC31XX_NADC
-  readRegister(0x13);  // AIC31XX_MADC
-  readRegister(0x14);  // AIC31XX_AOSR
-  readRegister(0x19);  // AIC31XX_CLKOUTMUX
-  readRegister(0x1A);  // AIC31XX_CLKOUTMVAL
-  readRegister(0x1B);  // AIC31XX_IFACE1
-  readRegister(0x1C);  // AIC31XX_DATA_OFFSET
-  readRegister(0x1D);  // AIC31XX_IFACE2
-  readRegister(0x1E);  // AIC31XX_BCLKN
-  readRegister(0x1F);  // AIC31XX_IFACESEC1
-  readRegister(0x20);  // AIC31XX_IFACESEC2
-  readRegister(0x21);  // AIC31XX_IFACESEC3
-  readRegister(0x22);  // AIC31XX_I2C
-  readRegister(0x24);  // AIC31XX_ADCFLAG
-  readRegister(0x25);  // AIC31XX_DACFLAG1
-  readRegister(0x26);  // AIC31XX_DACFLAG2
-  readRegister(0x27);  // AIC31XX_OFFLAG
-  readRegister(0x2C);  // AIC31XX_INTRDACFLAG
-  readRegister(0x2D);  // AIC31XX_INTRADCFLAG
-  readRegister(0x2E);  // AIC31XX_INTRDACFLAG2
-  readRegister(0x2F);  // AIC31XX_INTRADCFLAG2
-  readRegister(0x30);  // AIC31XX_INT1CTRL
-  readRegister(0x31);  // AIC31XX_INT2CTRL
-  readRegister(0x33);  // AIC31XX_GPIO1
-  readRegister(0x3C);  // AIC31XX_DACPRB
-  readRegister(0x3D);  // AIC31XX_ADCPRB
-  readRegister(0x3F);  // AIC31XX_DACSETUP
-  readRegister(0x40);  // AIC31XX_DACMUTE
-  readRegister(0x41);  // AIC31XX_LDACVOL
-  readRegister(0x42);  // AIC31XX_RDACVOL
-  readRegister(0x43);  // AIC31XX_HSDETECT
-  readRegister(0x51);  // AIC31XX_ADCSETUP
-  readRegister(0x52);  // AIC31XX_ADCFGA
-  readRegister(0x53);  // AIC31XX_ADCVOL
-
-  setPage(1);
-  readRegister(0x1F);  // AIC31XX_HPDRIVER
-  readRegister(0x20);  // AIC31XX_SPKAMP
-  readRegister(0x21);  // AIC31XX_HPPOP
-  readRegister(0x22);  // AIC31XX_SPPGARAMP
-  readRegister(0x23);  // AIC31XX_DACMIXERROUTE
-  readRegister(0x24);  // AIC31XX_LANALOGHPL
-  readRegister(0x25);  // AIC31XX_RANALOGHPR
-  readRegister(0x26);  // AIC31XX_LANALOGSPL
-  readRegister(0x27);  // AIC31XX_RANALOGSPR
-  readRegister(0x28);  // AIC31XX_HPLGAIN
-  readRegister(0x29);  // AIC31XX_HPRGAIN
-  readRegister(0x2A);  // AIC31XX_SPLGAIN
-  readRegister(0x2B);  // AIC31XX_SPRGAIN
-  readRegister(0x2C);  // AIC31XX_HPCONTROL
-  readRegister(0x2E);  // AIC31XX_MICBIAS
-  readRegister(0x2F);  // AIC31XX_MICPGA
-  readRegister(0x30);  // AIC31XX_MICPGAPI
-  readRegister(0x31);  // AIC31XX_MICPGAMI
-  readRegister(0x32);  // AIC31XX_MICPGACM
-
-  setPage(3);
-  readRegister(0x10);  // AIC31XX_TIMERDIVIDER
-  
 }
 static int volscale;
 
