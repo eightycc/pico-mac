@@ -693,7 +693,6 @@ const struct audio_i2s_config config =
         {
             .data_pin = PICO_AUDIO_I2S_DATA_PIN,
             .clock_pin_base = PICO_AUDIO_I2S_CLOCK_PIN_BASE,
-            .clock_pin_swapped = true,
             .pio_sm = 0,
             .dma_channel = 3
         };
