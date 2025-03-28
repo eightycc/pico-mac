@@ -578,9 +578,9 @@ void Wire_begin() {
 
 
 static void setup_i2s_dac() {
-gpio_init(22);
-gpio_set_dir(22, true);
-gpio_put(22, true); // allow i2s to come out of reset
+  gpio_init(22);
+  gpio_set_dir(22, true);
+  gpio_put(22, true); // allow i2s to come out of reset
 
   Wire_begin();
   sleep_ms(1000);
@@ -623,9 +623,9 @@ gpio_put(22, true); // allow i2s to come out of reset
   modifyRegister(0x05, 0x80, 0x80);
 
   // Headset and GPIO Config
-setPage(1);
-modifyRegister(0x2e, 0xFF, 0x0b); 
-setPage(0);
+  setPage(1);
+  modifyRegister(0x2e, 0xFF, 0x0b); 
+  setPage(0);
   modifyRegister(0x43, 0x80, 0x80); // Headset Detect
   modifyRegister(0x30, 0x80, 0x80); // INT1 Control
   modifyRegister(0x33, 0x3C, 0x14); // GPIO1
@@ -642,27 +642,24 @@ setPage(0);
   // DAC Volume Control
   setPage(0);
   modifyRegister(0x40, 0x0C, 0x00);
-  writeRegister(0x41, 0x28); // Left DAC Vol
-  writeRegister(0x42, 0x28); // Right DAC Vol
-
-  // ADC Setup
-  modifyRegister(0x51, 0x80, 0x80);
-  modifyRegister(0x52, 0x80, 0x00);
-  writeRegister(0x53, 0x68); // ADC Volume
+  writeRegister(0x41, 0x0); // Left DAC Vol, 0dB
+  writeRegister(0x42, 0x0); // Right DAC Vol, 0dB
 
   // Headphone and Speaker Setup
   setPage(1);
-  modifyRegister(0x1F, 0xC0, 0xC0); // HP Driver
-  modifyRegister(0x28, 0x04, 0x04); // HP Left Gain
-  modifyRegister(0x29, 0x04, 0x04); // HP Right Gain
-  writeRegister(0x24, 0x0A);  // Left Analog HP
-  writeRegister(0x25, 0x0A);  // Right Analog HP
+  modifyRegister(0x1F, 0xC0, 0xC0); // HP Driver Powered
+
+  modifyRegister(0x28, 0x04, 0x04); // HP Left not muted
+  modifyRegister(0x29, 0x04, 0x04); // HP Right not muted
+
+  writeRegister(0x24, 50);  // Left Analog HP, -14dB
+  writeRegister(0x25, 50);  // Right Analog HP, -14dB
   
-  modifyRegister(0x28, 0x78, 0x40); // HP Left Gain
-  modifyRegister(0x29, 0x78, 0x40); // HP Right Gain
+  modifyRegister(0x28, 0x78, 0x00); // HP Left Gain, 0 db
+  modifyRegister(0x29, 0x78, 0x00); // HP Right Gain, 0 db
 
   // Speaker Amp
-  modifyRegister(0x20, 0x80, 0x80);
+  modifyRegister(0x20, 0x80, 0x00); // powered down for now, set to 0x80 to power up!
   modifyRegister(0x2A, 0x04, 0x04);
   modifyRegister(0x2A, 0x18, 0x08);
   writeRegister(0x26, 0x0A);
