@@ -739,7 +739,23 @@ static bool audio_poll() {
     return true;
 }
 
+static bool mute_state = false;
+static void set_mute_state(bool new_state) {
+    if(mute_state == new_state) return;
+    mute_state = new_state;
+    
+    setPage(1);
+    if(mute_state)  {
+        modifyRegister(0x28, 0x04, 0x04); // HP Left not muted
+        modifyRegister(0x29, 0x04, 0x04); // HP Right not muted
+    } else {
+        modifyRegister(0x28, 0x04, 0x0); // HP Left muted
+        modifyRegister(0x29, 0x04, 0x0); // HP Right muted
+    }
+}
+
 void umac_audio_cfg(int volume, int sndres) {
     volscale = sndres ? 0 : 65536 * volume / 7;
+    set_mute_state(volscale != 0);
 }
 #endif
