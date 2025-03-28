@@ -659,7 +659,7 @@ static void setup_i2s_dac() {
   modifyRegister(0x29, 0x78, 0x00); // HP Right Gain, 0 db
 
   // Speaker Amp
-  modifyRegister(0x20, 0x80, 0x80); // Amp enabled (0x80) disable with (0x00)
+  modifyRegister(0x20, 0x80, 0x00); // Amp enabled (0x80) disable with (0x00)
   modifyRegister(0x2A, 0x04, 0x00); // Not muted (0x04) mute with (0x00)
   modifyRegister(0x2A, 0x18, 0x08); // 0 dB gain
   writeRegister(0x26, 0x0 | 60);  // amp gain, -26 dB
