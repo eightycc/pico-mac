@@ -64,8 +64,8 @@ fi
 # Append disk name to build directory if disk image is specified
 if [ -n "$DISC_IMAGE" ] && [ -f "$DISC_IMAGE" ]; then
     # Extract filename without extension
+    CMAKE_ARGS="$CMAKE_ARGS -DDISC_IMAGE=${DISC_IMAGE}"
     DISC_IMAGE=$(basename "$DISC_IMAGE" | sed 's/\.[^.]*$//')
-    CMAKE_ARGS="$CMAKE_ARGS -DDISK_IMAGE=${DISC_IMAGE}"
     TAG=${TAG}_${DISC_IMAGE}
 fi
 

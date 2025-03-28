@@ -104,15 +104,11 @@ static void     io_init()
 
 static void     poll_led_etc()
 {
-        static int led_on = 0;
         static absolute_time_t last = 0;
         absolute_time_t now = get_absolute_time();
 
         if (absolute_time_diff_us(last, now) > 500*1000) {
                 last = now;
-
-                //led_on ^= 1;
-                //gpio_put(GPIO_LED_PIN, led_on);
         }
 }
 
@@ -205,10 +201,12 @@ static void     poll_umac()
 #if USE_SD
 static int      disc_do_read(void *ctx, uint8_t *data, unsigned int offset, unsigned int len)
 {
+        gpio_put(GPIO_LED_PIN, 1);
         FIL *fp = (FIL *)ctx;
         f_lseek(fp, offset);
         unsigned int did_read = 0;
         FRESULT fr = f_read(fp, data, len, &did_read);
+        gpio_put(GPIO_LED_PIN, 0);
         if (fr != FR_OK || len != did_read) {
                 printf("disc: f_read returned %d, read %u (of %u)\n", fr, did_read, len);
                 return -1;
@@ -218,10 +216,12 @@ static int      disc_do_read(void *ctx, uint8_t *data, unsigned int offset, unsi
 
 static int      disc_do_write(void *ctx, uint8_t *data, unsigned int offset, unsigned int len)
 {
+        gpio_put(GPIO_LED_PIN, 1);
         FIL *fp = (FIL *)ctx;
         f_lseek(fp, offset);
         unsigned int did_write = 0;
         FRESULT fr = f_write(fp, data, len, &did_write);
+        gpio_put(GPIO_LED_PIN, 0);
         if (fr != FR_OK || len != did_write) {
                 printf("disc: f_write returned %d, read %u (of %u)\n", fr, did_write, len);
                 return -1;
@@ -676,9 +676,6 @@ static int volscale;
 int16_t audio[SAMPLES_PER_BUFFER];
 
 void umac_audio_trap() {
-static int led_on;
-                led_on ^= 1;
-                gpio_put(GPIO_LED_PIN, 1);
     int32_t  offset = 128;
     uint16_t *audiodata = (uint16_t*)audio_base;
     int scale = volscale;
@@ -732,14 +729,29 @@ setup_i2s_dac();
 static bool audio_poll() {
     audio_buffer_t *buffer = take_audio_buffer(producer_pool, false);
     if (!buffer) return false;
-                gpio_put(GPIO_LED_PIN, 0);
     memcpy(buffer->buffer->bytes, audio, sizeof(audio));
     buffer->sample_count = SAMPLES_PER_BUFFER;
     give_audio_buffer(producer_pool, buffer);
     return true;
 }
 
+static bool mute_state = false;
+static void set_mute_state(bool new_state) {
+    if(mute_state == new_state) return;
+    mute_state = new_state;
+    
+    setPage(1);
+    if(mute_state)  {
+        modifyRegister(0x28, 0x04, 0x04); // HP Left not muted
+        modifyRegister(0x29, 0x04, 0x04); // HP Right not muted
+    } else {
+        modifyRegister(0x28, 0x04, 0x0); // HP Left muted
+        modifyRegister(0x29, 0x04, 0x0); // HP Right muted
+    }
+}
+
 void umac_audio_cfg(int volume, int sndres) {
     volscale = sndres ? 0 : 65536 * volume / 7;
+    set_mute_state(volscale != 0);
 }
 #endif
