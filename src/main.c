@@ -65,6 +65,8 @@
 uint8_t *audio_base;
 static void audio_setup();
 static bool audio_poll();
+static void set_mute_state(bool new_state);
+static absolute_time_t automute_time;
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -153,6 +155,12 @@ static void     poll_umac()
         int64_t p_1hz = absolute_time_diff_us(last_1hz, now);
         int64_t p_vsync = absolute_time_diff_us(last_vsync, now);
         bool pending_vsync = p_vsync > 16667;
+#if ENABLE_AUDIO
+        if (automute_time < now) {
+            automute_time = at_the_end_of_time;
+            set_mute_state(false);
+        }
+#endif
 #if ENABLE_AUDIO
         pending_vsync |= audio_poll();
 #endif
@@ -565,7 +573,6 @@ void modifyRegister(uint8_t reg, uint8_t mask, uint8_t value) {
 }
 
 void setPage(uint8_t page) {
-  printf("Set page %d\n", page);
   writeRegister(0x00, page);
 }
 
@@ -659,10 +666,10 @@ static void setup_i2s_dac() {
   modifyRegister(0x29, 0x78, 0x00); // HP Right Gain, 0 db
 
   // Speaker Amp
-  modifyRegister(0x20, 0x80, 0x00); // Amp enabled (0x80) disable with (0x00)
-  modifyRegister(0x2A, 0x04, 0x00); // Not muted (0x04) mute with (0x00)
+  modifyRegister(0x20, 0x80, 0x80); // Amp enabled (0x80) disable with (0x00)
+  modifyRegister(0x2A, 0x04, 0x04); // Not muted (0x04) mute with (0x00)
   modifyRegister(0x2A, 0x18, 0x08); // 0 dB gain
-  writeRegister(0x26, 0x0 | 60);  // amp gain, -26 dB
+  writeRegister(0x26, 40);  // amp gain, -20.1 dB
 
   // Return to page 0
   setPage(0);
@@ -676,6 +683,10 @@ static int volscale;
 int16_t audio[SAMPLES_PER_BUFFER];
 
 void umac_audio_trap() {
+    set_mute_state(volscale != 0);
+    if(volscale) {
+        automute_time = make_timeout_time_ms(500);
+    }
     int32_t  offset = 128;
     uint16_t *audiodata = (uint16_t*)audio_base;
     int scale = volscale;
@@ -739,14 +750,16 @@ static bool mute_state = false;
 static void set_mute_state(bool new_state) {
     if(mute_state == new_state) return;
     mute_state = new_state;
-    
+
     setPage(1);
     if(mute_state)  {
         modifyRegister(0x28, 0x04, 0x04); // HP Left not muted
         modifyRegister(0x29, 0x04, 0x04); // HP Right not muted
+        modifyRegister(0x2A, 0x04, 0x04); // Speaker not muted
     } else {
         modifyRegister(0x28, 0x04, 0x0); // HP Left muted
         modifyRegister(0x29, 0x04, 0x0); // HP Right muted
+        modifyRegister(0x2A, 0x04, 0x0); // Speaker muted
     }
 }
 
