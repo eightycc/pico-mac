@@ -1,36 +1,43 @@
 # Pico Micro Mac (pico-umac)
 
-v0.21-fruitjam 22 March 2025
+v0.21-fruitjam 28 March 2025
 
 I (@jepler) have run roughshod across the code, breaking things willy-nilly and adding
     * 512x342 & 640x480 digital output on HSTX
     * PIO USB
     * PSRAM support
-    * Some Sound support
-    * To enable that, some VIA timer 2 support
+    * Some Sound support on the onboard I2S DAC (speaker and headphones)
 
-The two main variants offered are the "400kB" mac with a 640x480 resolution & a
-4MB mac with 512x342 resolution (presented centered on a 640x480 display).
-
-For now, I2S is on pins A1 (data) A2 (LRCK) A3 (bit clock). With any luck it'll be moved to the on-board I2S soon.
+Several pre-compiled variants are offered:
+    * 400kB or 4096kB (the latter uses PSRAM, and may perform slower overall but can run more software)
+    * 512x342 or 640x480 desktop resolution (512x342 is more compatible but has black screen margins)
+    * overclocked or not (overclocked may run faster but may be less reliable)
 
 What works?
     * System beep
-    * A fair amount of hypercard, though not playing melodies with 'play "Boing" "a b c"'
-    * Hypercard 'play "Boing"' does play audio though (as does 'beep')
     * Dark Castle including audio
     * After Dark screensavers including audio
+    * Glider works, but without sound
 
-What almost works
-    * Glider was working, but my sound changes made it boot with an error about missing coprocessor?? (appears linked to the timer2 implementation)
+What doesn't work?
+    * Hypercard "play" and some hypercard screen transitions
 
-There are artifacts that you can grab from the latest Actions build, at least until they expire.
-
-
-Some good Mac software:
+Some of the software I tested with:
     * https://archive.org/details/HyperCardBootSystem7
-    * https://archive.org/details/mac_DarkCastle_1_2
+    * https://archive.org/details/mac\_DarkCastle\_1\_2
     * https://archive.org/details/AfterDark2
+
+Plug mouse & keyboard into the USB ports of the fruit jam.
+
+Put the software (a mac HFS volume with no additional headers or metadata) on a
+SD card as "umac0w.img" (if you want to be able to write files) or
+"umac0ro.img" (if you want the drive to be read only) and press the reset
+button to start.
+
+
+**Important note on overclocking:** The "oc" uf2 files overclock your RP2 chip to 264MHz. Simply including the `<Adafruit_dvhstx.h>` header enables this overclocking, separate from the option in the Arduino Tools menu.
+Just like PC overclocking, there’s some risk of reduced component lifespan, though the extent (if any) can’t be precisely quantified and could vary from one chip to another.
+Proceed at your own discretion.
 
 v0.21 20 December 2024
 
