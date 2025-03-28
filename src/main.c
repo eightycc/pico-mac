@@ -65,6 +65,8 @@
 uint8_t *audio_base;
 static void audio_setup();
 static bool audio_poll();
+static void set_mute_state(bool new_state);
+static absolute_time_t automute_time;
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -153,6 +155,12 @@ static void     poll_umac()
         int64_t p_1hz = absolute_time_diff_us(last_1hz, now);
         int64_t p_vsync = absolute_time_diff_us(last_vsync, now);
         bool pending_vsync = p_vsync > 16667;
+#if ENABLE_AUDIO
+        if (automute_time < now) {
+            automute_time = at_the_end_of_time;
+            set_mute_state(false);
+        }
+#endif
 #if ENABLE_AUDIO
         pending_vsync |= audio_poll();
 #endif
@@ -565,7 +573,6 @@ void modifyRegister(uint8_t reg, uint8_t mask, uint8_t value) {
 }
 
 void setPage(uint8_t page) {
-  printf("Set page %d\n", page);
   writeRegister(0x00, page);
 }
 
@@ -676,6 +683,10 @@ static int volscale;
 int16_t audio[SAMPLES_PER_BUFFER];
 
 void umac_audio_trap() {
+    set_mute_state(volscale != 0);
+    if(volscale) {
+        automute_time = make_timeout_time_ms(500);
+    }
     int32_t  offset = 128;
     uint16_t *audiodata = (uint16_t*)audio_base;
     int scale = volscale;
