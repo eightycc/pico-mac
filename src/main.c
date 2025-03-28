@@ -744,9 +744,11 @@ static void set_mute_state(bool new_state) {
     if(mute_state)  {
         modifyRegister(0x28, 0x04, 0x04); // HP Left not muted
         modifyRegister(0x29, 0x04, 0x04); // HP Right not muted
+        modifyRegister(0x2A, 0x04, 0x00); // Speaker not muted
     } else {
         modifyRegister(0x28, 0x04, 0x0); // HP Left muted
         modifyRegister(0x29, 0x04, 0x0); // HP Right muted
+        modifyRegister(0x2A, 0x04, 0x0); // Speaker muted
     }
 }
 
