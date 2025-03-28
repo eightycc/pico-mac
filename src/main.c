@@ -659,10 +659,10 @@ static void setup_i2s_dac() {
   modifyRegister(0x29, 0x78, 0x00); // HP Right Gain, 0 db
 
   // Speaker Amp
-  modifyRegister(0x20, 0x80, 0x00); // Amp enabled (0x80) disable with (0x00)
-  modifyRegister(0x2A, 0x04, 0x00); // Not muted (0x04) mute with (0x00)
+  modifyRegister(0x20, 0x80, 0x80); // Amp enabled (0x80) disable with (0x00)
+  modifyRegister(0x2A, 0x04, 0x04); // Not muted (0x04) mute with (0x00)
   modifyRegister(0x2A, 0x18, 0x08); // 0 dB gain
-  writeRegister(0x26, 0x0 | 60);  // amp gain, -26 dB
+  writeRegister(0x26, 40);  // amp gain, -20.1 dB
 
   // Return to page 0
   setPage(0);
@@ -739,12 +739,12 @@ static bool mute_state = false;
 static void set_mute_state(bool new_state) {
     if(mute_state == new_state) return;
     mute_state = new_state;
-    
+
     setPage(1);
     if(mute_state)  {
         modifyRegister(0x28, 0x04, 0x04); // HP Left not muted
         modifyRegister(0x29, 0x04, 0x04); // HP Right not muted
-        modifyRegister(0x2A, 0x04, 0x00); // Speaker not muted
+        modifyRegister(0x2A, 0x04, 0x04); // Speaker not muted
     } else {
         modifyRegister(0x28, 0x04, 0x0); // HP Left muted
         modifyRegister(0x29, 0x04, 0x0); // HP Right muted
