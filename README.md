@@ -1,36 +1,44 @@
 # Pico Micro Mac (pico-umac)
 
-v0.21-fruitjam 22 March 2025
+v0.21-fruitjam 28 March 2025
 
 I (@jepler) have run roughshod across the code, breaking things willy-nilly and adding
-    * 512x342 & 640x480 digital output on HSTX
-    * PIO USB
-    * PSRAM support
-    * Some Sound support
-    * To enable that, some VIA timer 2 support
 
-The two main variants offered are the "400kB" mac with a 640x480 resolution & a
-4MB mac with 512x342 resolution (presented centered on a 640x480 display).
+ * 512x342 & 640x480 digital output on HSTX
+ * PIO USB
+ * PSRAM support
+ * Some Sound support on the onboard I2S DAC (speaker and headphones)
 
-For now, I2S is on pins A1 (data) A2 (LRCK) A3 (bit clock). With any luck it'll be moved to the on-board I2S soon.
+Several pre-compiled variants are offered:
+ * 400kB or 4096kB (the latter uses PSRAM, and may perform slower overall but can run more software)
+ * 512x342 or 640x480 desktop resolution (512x342 is more compatible but has black screen margins)
+ * overclocked or not (overclocked may run faster but may be less reliable)
 
 What works?
-    * System beep
-    * A fair amount of hypercard, though not playing melodies with 'play "Boing" "a b c"'
-    * Hypercard 'play "Boing"' does play audio though (as does 'beep')
-    * Dark Castle including audio
-    * After Dark screensavers including audio
+ * System beep
+ * Dark Castle including audio
+ * After Dark screensavers including audio
+ * Glider works, but without sound
 
-What almost works
-    * Glider was working, but my sound changes made it boot with an error about missing coprocessor?? (appears linked to the timer2 implementation)
+What doesn't work?
+ * Hypercard "play" and some hypercard screen transitions
 
-There are artifacts that you can grab from the latest Actions build, at least until they expire.
+Some of the software I tested with:
+ * https://archive.org/details/HyperCardBootSystem7
+ * https://archive.org/details/mac\_DarkCastle\_1\_2
+ * https://archive.org/details/AfterDark2
+
+Plug mouse & keyboard into the USB ports of the fruit jam.
+
+Put the software (a mac HFS volume with no additional headers or metadata) on a
+SD card as "umac0w.img" (if you want to be able to write files) or
+"umac0ro.img" (if you want the drive to be read only) and press the reset
+button to start.
 
 
-Some good Mac software:
-    * https://archive.org/details/HyperCardBootSystem7
-    * https://archive.org/details/mac_DarkCastle_1_2
-    * https://archive.org/details/AfterDark2
+**Important note on overclocking:** The "oc" uf2 files overclock your RP2 chip to 264MHz. Simply including the `<Adafruit_dvhstx.h>` header enables this overclocking, separate from the option in the Arduino Tools menu.
+Just like PC overclocking, there’s some risk of reduced component lifespan, though the extent (if any) can’t be precisely quantified and could vary from one chip to another.
+Proceed at your own discretion.
 
 v0.21 20 December 2024
 
@@ -72,97 +80,22 @@ couple of cheap components.
    * git submodules
       - Clone the repo with `--recursive`, or `git submodule update --init --recursive`
    * Install/set up the [Pico/RP2040 SDK](https://github.com/raspberrypi/pico-sdk)
-
-## Build umac
-
-Install and build `umac` first.  It'll give you a preview of the fun
-to come, plus is required to generate a patched ROM image.
-
-If you want to use a non-default memory size (i.e. >128K) you will
-need to build `umac` with a matching `MEMSIZE` build parameter, for
-example:
-
-```
-cd external/umac
-make MEMSIZE=208
-```
-
-This is because `umac` is used to patch the ROM, and when using
-unsupported sizes between 128K and 512K the RAM size can't be probed
-automatically, so the size needs to be embedded.
-
-This is also the case for altering the video resolution, because the ROM
-must be patched for this.  Build `umac` with `DISP_WIDTH=640 DISP_HEIGHT=480`
-when you intend to use the `USE_VGA_RES` option.  For example:
-
-```
-cd external/umac
-make MEMSIZE=208 DISP_WIDTH=640 DISP_HEIGHT=480
-```
+   * Get a ROM & disc image with `sh fetch-rom-dsk.sh` (needs curl & 7z (debian package p7zip-full))
 
 ## Build pico-umac
 
-Do the initial Pico SDK `cmake` setup into an out-of-tree build dir,
-providing config options if required.
-
-From the top-level `pico-umac` directory:
-
+Run the configure-and-build script:
 ```
-mkdir build
-(cd build ; PICO_SDK_PATH=/path/to/sdk cmake .. <options>)
+$ ./fruitjam-build.sh -h
+Usage: ./fruitjam-build.sh [-v] [-m KiB] [-d diskimage]
+
+   -v: Use framebuffer resolution 640x480 instead of 512x342
+   -m: Set memory size in KiB (over 400kB requires psram)
+   -d: Specify disc image to include
+   -o: Overclock to 264MHz (known to be incompatible with psram)
+
+PSRAM is automatically set depending on memory & framebuffer details
 ```
-
-Options are required if you want SD support, more than the default 128K of memory,
-higher resolution, to change pin configs, etc.:
-
-   * `-DUSE_SD=true`: Include SD card support.  The GPIOs default to
-     `spi0` running at 5MHz, and GPIOs 2,3,4,5 for
-     `SCK`/`TX`/`RX`/`CS` respectively.  These can be overridden for
-     your board/setup:
-      - `-DSD_TX=<gpio pin>`
-      - `-DSD_RX=<gpio pin>`
-      - `-DSD_SCK=<gpio pin>`
-      - `-DSD_CS=<gpio pin>`
-      - `-DSD_MHZ=<integer speed in MHz>`
-   * `-DMEMSIZE=<size in KB>`: The maximum practical size is about
-     208KB, but values between 128 and 208 should work on a RP2040.
-     Note that although apps and Mac OS seem to gracefully detect free
-     memory, these products never existed and some apps might behave
-     strangely.
-      - With the `Mac Plus` ROM, a _Mac 128K_ doesn't quite have
-        enough memory to run _MacPaint_.  So, 192 or 208 (and a
-        writeable boot volume on SD) will allow _MacPaint_ to run.
-      - **NOTE**: When this option is used, the ROM image must be
-          built with an `umac` build with a corresponding `MEMSIZE`
-   * `-DUSE_VGA_RES=1`: Use 640x480 screen resolution instead of the
-     native 512x342.  This uses an additional 16KB of RAM, so this
-     option makes a _Mac 128K_ configuration virtually unusable.
-     It is recommended only to use this when configuring >208K
-     using the option above.
-   * `-DVIDEO_PIN=<GPIO pin>`: Move the video output pins; defaults
-     to the pinout shown below.
-
-Tip: `cmake` caches these variables, so if you see weird behaviour
-having built previously and then changed an option, delete the `build`
-directory and start again.
-
-## ROM image
-
-The flow is to use `umac` built on your workstation (e.g. Linux,
-but WSL may work too) to prepare a patched ROM image.
-
-`umac` is passed the 4D1F8172 MacPlusv3 ROM, and `-W` to write the
-post-patching binary out:
-
-```
-./external/umac/main -r '4D1F8172 - MacPlus v3.ROM' -W rom.bin
-```
-
-Note: Again, remember that if you are using the `-DMEMSIZE` option to
-increase the `pico-umac` memory, or the `-DUSE_VGA_RES` option to
-increase the `pico-umac` screen resolution, you will need to create
-this ROM image with a `umac` built with the corresponding
-`MEMSIZE`/`DISP_WIDTH`/`DISP_HEIGHT` options, as above.
 
 ## Disc image
 
@@ -188,147 +121,15 @@ into _one_ of the following files in the root of the card:
 
    * `umac0.img`:  A normal read/write disc image
    * `umac0ro.img`:  A read-only disc image
-
-## Putting it together, and building
-
-Given the `rom.bin` prepared above and a `disc.bin` destinated for
-flash, you can now generate includes from them and perform the build:
-
-```
-mkdir incbin
-xxd -i < rom.bin > incbin/umac-rom.h
-
-# When using an internal disc image:
-xxd -i < disc.bin > incbin/umac-disc.h
-# OR, if using SD and if you do _not_ want an internal image:
-echo > incbin/umac-disc.h
-
-make -C build
-```
-
-You'll get a `build/firmware.uf2` out the other end.  Flash this to
-your Pico: e.g. plug it in with button held/drag/drop.  (When
-iterating/testing during development, unplugging the OTG cable each
-time is a pain – I ended up moving to SWD probe programming.)
-
-The LED should flash at about 2Hz once powered up.
-
-# Hardware contruction
-
-It's a simple circuit in terms of having few components: just the
-Pico, with three series resistors and a VGA connection, and DC power.
-However, if you're not comfortable soldering then don't choose this as
-your first project: I don't want you to zap your mouse, keyboard,
-monitor, SD cards...
-
-Disclaimer: This is a hardware project with zero warranty.  All due
-care has been taken in design/docs, but if you choose to build it then
-I disclaim any responsibility for your hardware or personal safety.
-
-With that out of the way...
-
-## Theory of operation
-
-Three 3.3V GPIO pins are driven by PIO to give VSYNC, HSYNC, and video
-out signals.
-
-The syncs are in many similar projects driven directly from GPIO, but
-here I suggest a 66Ω series resistor on each in order to keep the
-voltages at the VGA end (presumably into 75Ω termination?) in the
-correct range.
-
-For the video output, one GPIO drives R,G,B channels for mono/white
-output.  A 100Ω resistor gives roughly 0.7V (max intensity) into 3*75Ω
-signals.
-
-That's it... power in, USB adapter.
-
-## Pinout and circuit
-
-Parts needed:
-
-   * Pico/RP2040 board
-   * USB OTG micro-B to A adapter
-   * USB keyboard, mouse (and hub, if not integrated)
-   * 5V DC supply (600mA+), and maybe a DC jack
-   * 100Ω resistor
-   * 2x 66Ω resistors
-   * VGA DB15 connector, or janky chopped VGA cable
-   * (optional) SD card breakout, SD card
-
-If you want to get fancy with an SD card, you will need some kind of
-SD card SPI breakout adapter.  (There are a lot of these around, but
-many seem to have a buffer/level-converter for 5V operation.  Find one
-without, or modify your adapter for a 3.3V supply.  Doing so, and
-finding an SD card that works well with SPI is out of scope of this
-doc.)
-
-Pins are given for a RPi Pico board, but this will work on any RP2040
-board with 2MB+ flash as long as all required GPIOs are pinned out:
-
-| GPIO/pin     | Pico pin     | Usage          |
-| ------------ | ------------ | -------------- |
-|   GP0        | 1            | UART0 TX       |
-|   GP1        | 2            | UART0 RX       |
-|   GP18       | 24           | Video output % |
-|   GP19       | 25           | VSYNC          |
-|   GP21       | 27           | HSYNC          |
-|   Gnd        | 23, 28       | Video ground   |
-|   VBUS (5V)  | 40           | +5V supply     |
-|   Gnd        | 38           | Supply ground  |
-
-%: The video pins default here, but can be moved by building with the
-   `-DVIDEO_PIN` option.  This sets the position of the Video pin,
-   which is immediately followed by VSYNC, then a gap, then HSYNC.
-   For example, `-DVIDEO_PIN=20` configures the Video pin at 20,
-   VSYNC at 21, HSYNC at 23.
-
-Method:
-
-   * Wire 5V supply to VBUS/Gnd
-   * Video output --> 100Ω --> VGA RGB (pins 1,2,3) all connected together
-   * HSYNC --> 66Ω --> VGA pin 13
-   * VSYNC --> 66Ω --> VGA pin 14
-   * Video ground --> VGA grounds (pins 5-8, 10)
-
-If you don't have exactly 100Ω, using slightly more is OK but display
-will be dimmer.  If you don't have 66Ω for the syncs, connecting them
-directly is "probably OK", but YMMV.
-
-If you are including an SD card, the default pinout is as follows
-(this can be changed at build time, above):
-
-| GPIO/pin     | Pico pin     | Usage          |
-| ------------ | ------------ | -------------- |
-|   GP2        | 4            | SPI0 SCK       |
-|   GP3        | 5            | SPI0 TX (MOSI) |
-|   GP4        | 6            | SPI0 RX (MISO) |
-|   GP5        | 7            | SPI0 /CS       |
-
-(The SD card needs a good ground, e.g. Pico pin 8 nearby, and 3.3V
-supply from Pico pin 36.)
-
-If your SD breakout board is "raw", i.e. has no buffer or series
-resistors on-board, you may find adding a 66Ω resistor in series on
-all of the four signal lines will help.  Supply decoupling caps will
-also be important (e.g. 1uF+0.1uF) to keep the SD card happy.  _Keep
-SD card wiring short._ The default SPI clock (5MHz) is
-conservative/slow, but I suggest verifying the circuit/SD card works
-before increasing it.
-
-Test your connections: the key part is not getting over 0.7V into your
-VGA connector's signals, or shorting SD card pins.
-
-Connect USB mouse, and keyboard if you like, and power up.
-
 # Software
 
-Both CPU cores are used, and are overclocked (blush) to 250MHz so that
+Both CPU cores are used, and are optionally overclocked (blush) to 264MHz so that
 Missile Command is enjoyable to play.
 
 The `umac` emulator and video output runs on core 1, and core 0 deals
 with USB HID input.  Video DMA is initialised pointing to the
-framebuffer in the Mac's RAM.
+framebuffer in the Mac's RAM, or to a mirrored region in SRAM depending
+on the configuration.
 
 Other than that, it's just a main loop in `main.c` shuffling things
 into `umac`.
@@ -344,32 +145,6 @@ VT220 emulator!).
 
 The USB HID code is largely stolen from the TinyUSB example, but shows
 how in practice you might capture keypresses/deal with mouse events.
-
-## Video
-
-The video system is pretty good and IMHO worth stealing for other
-projects: It uses one PIO state machine and 3 DMA channels to provide
-a rock-solid bitmapped 1BPP 640x480 video output.  The Mac 512x342
-framebuffer is centred inside this by using horizontal blanking
-regions (programmed into the line scan-out) and vertical blanking
-areas from a dummy "always black" mini-framebuffer.
-
-It supports (at build time) flexible resolutions/timings.  The one
-caveat (or advantage?) is that it uses an HSYNC IRQ routine to
-recalculate the next DMA buffer pointer; doing this at scan-time costs
-about 1% of the CPU time (on core 1).  However, it could be used to
-generate video on-the-fly from characters/tiles without a true
-framebuffer.
-
-I'm considering improvements to the video system:
-
-   * Supporting multiple BPP/colour output
-   * Implement the rest of `DE`/display valid strobe support, making
-     driving LCDs possible.
-   * Using a video DMA address list and another DMA channel to reduce
-     the IRQ frequency (CPU overhead) to per-frame, at the cost of a
-     couple of KB of RAM.
-
 
 # Licence
 
